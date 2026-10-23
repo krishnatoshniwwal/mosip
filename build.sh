@@ -14,6 +14,9 @@ JUNIT_VERSION=1.10.2
 JUNIT_JAR="$LIB_DIR/junit-platform-console-standalone-$JUNIT_VERSION.jar"
 OPENCV_JAR="$LIB_DIR/opencv-4.9.0-0.jar"
 ONNX_JAR="$LIB_DIR/onnxruntime-1.17.0.jar"
+# YuNet face detector, MIT licence, OpenCV model zoo. Pinned by hash so a changed file is never used.
+YUNET_MODEL="$ROOT/models/face_detection_yunet_2023mar.onnx"
+YUNET_SHA256=8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
 
 SEP=':'
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) SEP=';' ;; esac
@@ -46,6 +49,13 @@ mkdir -p "$LIB_DIR"
 download_if_missing "$JUNIT_JAR" "https://repo1.maven.org/maven2/org/junit/platform/junit-platform-console-standalone/$JUNIT_VERSION/junit-platform-console-standalone-$JUNIT_VERSION.jar" "JUnit console launcher"
 download_if_missing "$OPENCV_JAR" "https://repo1.maven.org/maven2/org/openpnp/opencv/4.9.0-0/opencv-4.9.0-0.jar" "OpenCV library"
 download_if_missing "$ONNX_JAR" "https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime/1.17.0/onnxruntime-1.17.0.jar" "ONNX Runtime"
+download_if_missing "$YUNET_MODEL" "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx" "YuNet face detection model"
+if command -v sha256sum >/dev/null; then ACTUAL=$(sha256sum "$YUNET_MODEL" | cut -d' ' -f1); else ACTUAL=$(shasum -a 256 "$YUNET_MODEL" | cut -d' ' -f1); fi
+if [ "$ACTUAL" != "$YUNET_SHA256" ]; then
+  rm -f "$YUNET_MODEL"
+  echo "Checksum mismatch for $YUNET_MODEL; the file was deleted. Re-run to download it again." >&2
+  exit 1
+fi
 
 rm -rf "$OUT"; mkdir -p "$OUT"
 
@@ -67,8 +77,9 @@ compile "$ROOT/liveness-live-demo/src/main/java" "$OUT/live" "$OUT/core$SEP$OUT/
 if [ "$SKIP_TESTS" -eq 0 ]; then
   echo "== Compiling tests"
   compile "$ROOT/liveness-core/src/test/java" "$OUT/test" "$OUT/core$SEP$JUNIT_JAR"
+  compile "$ROOT/liveness-onnx-engine/src/test/java" "$OUT/onnx-test" "$OUT/core$SEP$OUT/onnx$SEP$OPENCV_JAR$SEP$ONNX_JAR$SEP$JUNIT_JAR"
   echo "== Running tests"
-  java -jar "$JUNIT_JAR" execute --class-path "$OUT/core$SEP$OUT/test" --scan-class-path --disable-banner --details=tree
+  java -jar "$JUNIT_JAR" execute --class-path "$OUT/core$SEP$OUT/test$SEP$OUT/onnx$SEP$OUT/onnx-test$SEP$OPENCV_JAR$SEP$ONNX_JAR" --scan-class-path --disable-banner --details=tree
 fi
 
 if [ "$RUN" -eq 1 ]; then

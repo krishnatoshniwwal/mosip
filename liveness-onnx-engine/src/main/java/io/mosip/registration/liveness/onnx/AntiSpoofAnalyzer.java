@@ -3,10 +3,7 @@ package io.mosip.registration.liveness.onnx;
 import io.mosip.registration.liveness.engine.AttackType;
 import io.mosip.registration.liveness.engine.PadResult;
 
-import ai.onnxruntime.OnnxTensor;
-import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtException;
-import ai.onnxruntime.OrtSession;
 
 import org.opencv.core.Core;
 import org.opencv.core.CvType;
@@ -17,10 +14,7 @@ import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 
-import java.io.File;
-import java.nio.FloatBuffer;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -28,11 +22,9 @@ import java.util.logging.Logger;
 /**
  * Anti-spoofing / Presentation Attack Detection (PAD) analyzer.
  *
- * <p>When an ONNX anti-spoofing model (e.g. MiniFASNet) is available, inference is run through
- * ONNX Runtime to produce a liveness/bona-fide score.
- *
- * <p>When no model is present, a comprehensive <b>heuristic analysis</b> is performed that
- * combines multiple signals to estimate whether the face is bona fide or a presentation attack:
+ * <p>Uses the MiniFASNet ONNX models ({@link MiniFasNetEnsemble}) when they are in the model
+ * directory. Without them it falls back to a <b>heuristic analysis</b> that combines several
+ * signals to estimate whether the face is bona fide or a presentation attack:
  *
  * <ul>
  *   <li><b>Frequency analysis</b> — real faces have natural high-frequency texture; printed photos
@@ -53,9 +45,6 @@ public final class AntiSpoofAnalyzer implements AutoCloseable {
 
     private static final Logger LOG = Logger.getLogger(AntiSpoofAnalyzer.class.getName());
 
-    /** ONNX anti-spoofing model input size (MiniFASNet expects 80×80). */
-    private static final int MODEL_INPUT_SIZE = 80;
-
     /** Weights for combining heuristic signals. */
     private static final double W_FREQUENCY = 0.25;
     private static final double W_COLOUR = 0.20;
@@ -63,59 +52,44 @@ public final class AntiSpoofAnalyzer implements AutoCloseable {
     private static final double W_SPECULAR = 0.15;
     private static final double W_EDGE = 0.20;
 
-    private OrtEnvironment ortEnv;
-    private OrtSession ortSession;
-    private final boolean usingModel;
+    private MiniFasNetEnsemble model;
 
     /**
-     * Create a new anti-spoof analyzer.
-     *
-     * @param modelDir directory that may contain {@code anti_spoof.onnx} or
-     *                 {@code MiniFASNet.onnx}
+     * @param modelDir directory that may contain the MiniFASNet ONNX models
+     *                 ({@value MiniFasNetEnsemble#V2_FILE}, {@value MiniFasNetEnsemble#V1SE_FILE})
      */
     public AntiSpoofAnalyzer(Path modelDir) {
-        OrtSession session = null;
-        OrtEnvironment env = null;
-
+        MiniFasNetEnsemble loaded = null;
         if (modelDir != null) {
-            File model = findModelFile(modelDir);
-            if (model != null) {
-                try {
-                    env = OrtEnvironment.getEnvironment();
-                    session = env.createSession(model.getAbsolutePath());
-                    LOG.info("Anti-spoof analyzer: loaded ONNX model from " + model.getAbsolutePath());
-                } catch (OrtException e) {
-                    LOG.log(Level.WARNING, "Failed to load anti-spoof ONNX model — using heuristic fallback", e);
-                    session = null;
-                    env = null;
-                }
+            try {
+                loaded = MiniFasNetEnsemble.loadIfPresent(modelDir);
+            } catch (OrtException e) {
+                LOG.log(Level.WARNING, "Failed to load MiniFASNet models — using heuristic fallback", e);
             }
         }
-
-        this.ortSession = session;
-        this.ortEnv = env;
-        this.usingModel = (session != null);
-
-        if (!usingModel) {
-            LOG.warning("Anti-spoof analyzer: ONNX model not available — using heuristic analysis. "
+        this.model = loaded;
+        if (model != null) {
+            LOG.info("Anti-spoof analyzer: loaded " + model.modelCount() + " MiniFASNet model(s) from " + modelDir);
+        } else {
+            LOG.warning("Anti-spoof analyzer: MiniFASNet models not available — using heuristic analysis. "
                     + "PAD accuracy will be reduced.");
         }
     }
 
-    /** Whether this analyzer is using an ONNX model. */
+    /** Whether this analyzer is using the MiniFASNet models. */
     public boolean isUsingModel() {
-        return usingModel;
+        return model != null;
     }
 
     /**
      * Analyze a face region for liveness / presentation attacks.
      *
-     * @param bgrFrame  the full BGR frame
+     * @param bgrFrame  the full BGR frame (the model looks at the area around the face too)
      * @param faceRect  the detected face bounding box
      * @return a {@link PadResult} with the liveness assessment
+     * @throws OrtException if model inference fails; this is never reported as bona fide
      */
-    public PadResult analyze(Mat bgrFrame, Rect faceRect) {
-        // Extract and resize the face crop
+    public PadResult analyze(Mat bgrFrame, Rect faceRect) throws OrtException {
         int x = Math.max(0, faceRect.x);
         int y = Math.max(0, faceRect.y);
         int w = Math.min(faceRect.width, bgrFrame.cols() - x);
@@ -126,17 +100,15 @@ public final class AntiSpoofAnalyzer implements AutoCloseable {
         }
 
         Rect safeRect = new Rect(x, y, w, h);
-        Mat faceCrop = new Mat(bgrFrame, safeRect);
-
-        PadResult result;
-        if (usingModel) {
-            result = analyzeModel(faceCrop);
-        } else {
-            result = analyzeHeuristic(faceCrop);
+        if (model != null) {
+            return model.analyze(bgrFrame, safeRect);
         }
-
-        faceCrop.release();
-        return result;
+        Mat faceCrop = new Mat(bgrFrame, safeRect);
+        try {
+            return analyzeHeuristic(faceCrop);
+        } finally {
+            faceCrop.release();
+        }
     }
 
     /**
@@ -148,73 +120,6 @@ public final class AntiSpoofAnalyzer implements AutoCloseable {
             return 50.0f;
         }
         return pad.getBonaFideScore();
-    }
-
-    // ======================================================================
-    // ONNX model inference
-    // ======================================================================
-
-    private PadResult analyzeModel(Mat faceCrop) {
-        try {
-            // Resize to model input size
-            Mat resized = new Mat();
-            Imgproc.resize(faceCrop, resized, new Size(MODEL_INPUT_SIZE, MODEL_INPUT_SIZE));
-
-            // Convert to float and normalize to [0, 1]
-            Mat floatMat = new Mat();
-            resized.convertTo(floatMat, CvType.CV_32FC3, 1.0 / 255.0);
-            resized.release();
-
-            // Convert HWC to CHW layout and fill a float buffer
-            int channels = 3;
-            int height = MODEL_INPUT_SIZE;
-            int width = MODEL_INPUT_SIZE;
-            float[] pixelData = new float[channels * height * width];
-            float[] rowData = new float[width * channels];
-
-            for (int row = 0; row < height; row++) {
-                floatMat.get(row, 0, rowData);
-                for (int col = 0; col < width; col++) {
-                    int srcIdx = col * channels;
-                    // BGR → channels: B=0, G=1, R=2
-                    pixelData[0 * height * width + row * width + col] = rowData[srcIdx + 2]; // R
-                    pixelData[1 * height * width + row * width + col] = rowData[srcIdx + 1]; // G
-                    pixelData[2 * height * width + row * width + col] = rowData[srcIdx];     // B
-                }
-            }
-            floatMat.release();
-
-            // Create ONNX tensor [1, 3, 80, 80]
-            long[] shape = new long[]{1, channels, height, width};
-            OnnxTensor tensor = OnnxTensor.createTensor(ortEnv, FloatBuffer.wrap(pixelData), shape);
-
-            // Run inference
-            String inputName = ortSession.getInputNames().iterator().next();
-            OrtSession.Result result = ortSession.run(Collections.singletonMap(inputName, tensor));
-
-            // Parse output: assume [1, 2] where index 0 = spoof, index 1 = live
-            float[][] output = (float[][]) result.get(0).getValue();
-            float spoofScore = output[0][0];
-            float liveScore = output[0][1];
-
-            tensor.close();
-            result.close();
-
-            // Softmax to get probabilities
-            double expSpoof = Math.exp(spoofScore);
-            double expLive = Math.exp(liveScore);
-            double total = expSpoof + expLive;
-            float bonaFideProb = (float) (expLive / total) * 100.0f;
-
-            if (bonaFideProb >= 50.0f) {
-                return PadResult.bonaFide(bonaFideProb);
-            } else {
-                return PadResult.attack(AttackType.UNKNOWN, bonaFideProb);
-            }
-        } catch (OrtException e) {
-            LOG.log(Level.WARNING, "ONNX inference failed — falling back to heuristic", e);
-            return analyzeHeuristic(faceCrop);
-        }
     }
 
     // ======================================================================
@@ -600,37 +505,11 @@ public final class AntiSpoofAnalyzer implements AutoCloseable {
     // Utilities
     // ======================================================================
 
-    /**
-     * Find the anti-spoofing model file in the given directory.
-     * Looks for common names in priority order.
-     */
-    private static File findModelFile(Path modelDir) {
-        String[] candidates = {
-                "anti_spoof.onnx",
-                "MiniFASNet.onnx",
-                "minifasnet.onnx",
-                "anti_spoofing.onnx"
-        };
-        for (String name : candidates) {
-            File f = modelDir.resolve(name).toFile();
-            if (f.isFile()) {
-                return f;
-            }
-        }
-        return null;
-    }
-
     @Override
     public void close() {
-        if (ortSession != null) {
-            try {
-                ortSession.close();
-            } catch (OrtException e) {
-                LOG.log(Level.WARNING, "Error closing ONNX session", e);
-            }
-            ortSession = null;
+        if (model != null) {
+            model.close();
+            model = null;
         }
-        // OrtEnvironment is a singleton and should not be closed here
-        ortEnv = null;
     }
 }

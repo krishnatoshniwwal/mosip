@@ -13,44 +13,54 @@ import org.opencv.core.Mat;
 import org.opencv.core.Rect;
 
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * On-device Liveness and Presentation Attack Detection (PAD) engine.
- * Integrates OpenCV face detection, facial landmark analysis, and anti-spoofing
- * (ONNX model or multi-cue heuristic analysis).
+ * On-device liveness and PAD engine: YuNet face detection with five landmarks, landmark-based head
+ * pose, face quality, and anti-spoofing (ONNX model or heuristic fallback).
+ *
+ * <p>Only challenges the engine can genuinely measure are advertised in {@link #info()}. Head turns
+ * come from the landmarks. Blink and smile need a dense landmark model, so eye openness and smile
+ * are reported as unknown (NaN) and those challenges are never issued until that model is wired in.
  */
 public final class OnnxLivenessEngine implements LivenessEngine {
 
+    /** System property overriding the model directory (default: {@code models} in the working directory). */
+    public static final String MODEL_DIR_PROPERTY = "mosip.liveness.models";
+
     private static final Logger LOG = Logger.getLogger(OnnxLivenessEngine.class.getName());
+    private static final Set<ChallengeType> MEASURABLE_CHALLENGES =
+            EnumSet.of(ChallengeType.TURN_LEFT, ChallengeType.TURN_RIGHT);
 
     private final EngineInfo engineInfo;
     private final FaceDetector faceDetector;
     private final FaceLandmarkAnalyzer landmarkAnalyzer;
     private final AntiSpoofAnalyzer antiSpoofAnalyzer;
 
-    public OnnxLivenessEngine() {
-        this(null);
-    }
-
-    public OnnxLivenessEngine(Path modelDir) {
+    /**
+     * @param modelDir directory holding the model files
+     * @throws LivenessEngineException if the face detection model is missing or unusable
+     */
+    public OnnxLivenessEngine(Path modelDir) throws LivenessEngineException {
         this.faceDetector = new FaceDetector(modelDir);
         this.landmarkAnalyzer = new FaceLandmarkAnalyzer(modelDir);
         this.antiSpoofAnalyzer = new AntiSpoofAnalyzer(modelDir);
 
-        String modelVersion = antiSpoofAnalyzer.isUsingModel() ? "onnx-minifasnet" : "heuristic-v1";
-        this.engineInfo = new EngineInfo(
-                "MOSIP Real-Time Liveness Engine",
-                "1.0.0",
-                modelVersion,
-                EnumSet.allOf(ChallengeType.class),
-                true
-        );
+        String modelVersion = "yunet-2023mar+" + (antiSpoofAnalyzer.isUsingModel() ? "minifasnet" : "heuristic-pad");
+        this.engineInfo = new EngineInfo("MOSIP Real-Time Liveness Engine", "1.1.0", modelVersion,
+                MEASURABLE_CHALLENGES, true);
+    }
+
+    /** Model directory from {@value #MODEL_DIR_PROPERTY}, or {@code models} in the working directory. */
+    public static Path defaultModelDir() {
+        return Paths.get(System.getProperty(MODEL_DIR_PROPERTY, "models")).toAbsolutePath();
     }
 
     @Override
@@ -74,48 +84,29 @@ public final class OnnxLivenessEngine implements LivenessEngine {
             int frameW = bgrMat.cols();
             int frameH = bgrMat.rows();
 
-            List<Rect> detectedFaces = faceDetector.detect(bgrMat);
+            List<DetectedFace> detectedFaces = faceDetector.detect(bgrMat);
             if (detectedFaces.isEmpty()) {
                 return new FrameAnalysis(Collections.emptyList(), 0f, PadResult.notEvaluated());
             }
 
             List<FaceObservation> observations = new ArrayList<>();
-            for (Rect r : detectedFaces) {
-                float[] eyes = landmarkAnalyzer.estimateEyeOpenness(bgrMat, r);
-                float smile = landmarkAnalyzer.estimateSmile(bgrMat, r);
-                float[] pose = landmarkAnalyzer.estimateHeadPose(bgrMat, r);
-                int quality = landmarkAnalyzer.estimateQuality(bgrMat, r);
-
-                float cx = (r.x + r.width / 2.0f) / frameW;
-                float cy = (r.y + r.height / 2.0f) / frameH;
-                float nw = (float) r.width / frameW;
-                float nh = (float) r.height / frameH;
-
-                FaceObservation.Builder b = FaceObservation.builder()
-                        .center(cx, cy)
-                        .size(nw, nh)
-                        .quality(quality)
-                        .smile(smile)
-                        .pose(pose[0], pose[1], pose[2]);
-
-                if (!Float.isNaN(eyes[0]) && !Float.isNaN(eyes[1])) {
-                    b.eyes(eyes[0], eyes[1]);
-                } else if (!Float.isNaN(eyes[0])) {
-                    b.eyes(eyes[0], eyes[0]);
-                } else if (!Float.isNaN(eyes[1])) {
-                    b.eyes(eyes[1], eyes[1]);
-                }
-
-                observations.add(b.build());
+            for (DetectedFace face : detectedFaces) {
+                Rect r = face.getBox();
+                float[] pose = HeadPoseEstimator.estimate(face);
+                observations.add(FaceObservation.builder()
+                        .center((r.x + r.width / 2.0f) / frameW, (r.y + r.height / 2.0f) / frameH)
+                        .size((float) r.width / frameW, (float) r.height / frameH)
+                        .quality(landmarkAnalyzer.estimateQuality(bgrMat, r))
+                        .pose(pose[0], pose[1], pose[2])
+                        .build());
             }
 
-            // PAD and passive score evaluated for primary face (when 1 face is present)
+            // PAD and passive score are evaluated for the primary face (when exactly one is present)
             PadResult padResult = PadResult.notEvaluated();
             float livenessScore = 0f;
 
             if (detectedFaces.size() == 1) {
-                Rect primary = detectedFaces.get(0);
-                padResult = antiSpoofAnalyzer.analyze(bgrMat, primary);
+                padResult = antiSpoofAnalyzer.analyze(bgrMat, detectedFaces.get(0).getBox());
                 livenessScore = antiSpoofAnalyzer.livenessScore(padResult);
             }
 

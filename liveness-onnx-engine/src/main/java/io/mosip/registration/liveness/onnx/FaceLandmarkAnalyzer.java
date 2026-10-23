@@ -4,7 +4,6 @@ import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfDouble;
-import org.opencv.core.Point;
 import org.opencv.core.Rect;
 import org.opencv.core.Size;
 import org.opencv.dnn.Dnn;
@@ -17,12 +16,12 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Extracts facial landmarks and computes per-face measurements: eye openness, smile,
- * head pose, and quality.
+ * Per-face measurements beyond the five YuNet landmarks: face quality, eye openness and smile.
  *
- * <p>When a 68-point landmark model is available (e.g. a DNN-based model), precise geometric
- * measurements are computed. When no model is present, the analyzer falls back to gradient-based
- * and statistical heuristics that give reasonable approximations from raw pixel data.
+ * <p>The engine currently uses only {@link #estimateQuality}. Head pose comes from
+ * {@link HeadPoseEstimator}. The eye-openness and smile estimators below are gradient heuristics
+ * kept as reference: they are not reliable enough to drive blink or smile challenges, so the engine
+ * does not call them. A dense landmark model (eye aspect ratio, mouth width) replaces them next.
  *
  * <p>Instances are <em>not</em> thread-safe.
  */
@@ -58,8 +57,7 @@ public final class FaceLandmarkAnalyzer implements AutoCloseable {
         this.usingModel = (net != null);
 
         if (!usingModel) {
-            LOG.warning("Landmark analyzer: model not available — using heuristic analysis. "
-                    + "Measurements will be approximate.");
+            LOG.info("Landmark analyzer: no dense landmark model - blink and smile challenges are disabled.");
         }
     }
 
@@ -244,125 +242,6 @@ public final class FaceLandmarkAnalyzer implements AutoCloseable {
         double ratio = (vEnergy > 1.0) ? (hEnergy / vEnergy) : hEnergy;
         float score = (float) ((ratio - 0.8) / 1.2);
         return Math.max(0.0f, Math.min(1.0f, score));
-    }
-
-    // ======================================================================
-    // Head pose estimation
-    // ======================================================================
-
-    /**
-     * Estimate head pose from the face bounding box.
-     *
-     * @param bgrFrame the full BGR frame
-     * @param faceRect the detected face bounding box
-     * @return float array {@code [yaw, pitch, roll]} in degrees
-     */
-    public float[] estimateHeadPose(Mat bgrFrame, Rect faceRect) {
-        if (usingModel) {
-            return estimateHeadPoseModel(bgrFrame, faceRect);
-        }
-        return estimateHeadPoseHeuristic(bgrFrame, faceRect);
-    }
-
-    private float[] estimateHeadPoseModel(Mat bgrFrame, Rect faceRect) {
-        return estimateHeadPoseHeuristic(bgrFrame, faceRect);
-    }
-
-    /**
-     * Heuristic head pose estimation from face bbox geometry.
-     *
-     * <ul>
-     *   <li><b>Yaw</b>: horizontal displacement of the face centre from the frame centre.
-     *       A face that is left-of-centre likely has a positive yaw (turned to subject's left).</li>
-     *   <li><b>Pitch</b>: vertical displacement — face above centre → looking up → positive pitch.</li>
-     *   <li><b>Roll</b>: estimated from face bbox aspect ratio deviation; without landmarks this
-     *       is unreliable, so a small value derived from horizontal gradient asymmetry is used.</li>
-     * </ul>
-     */
-    private float[] estimateHeadPoseHeuristic(Mat bgrFrame, Rect faceRect) {
-        float frameCenterX = bgrFrame.cols() / 2.0f;
-        float frameCenterY = bgrFrame.rows() / 2.0f;
-
-        float faceCenterX = faceRect.x + faceRect.width / 2.0f;
-        float faceCenterY = faceRect.y + faceRect.height / 2.0f;
-
-        // Normalized offset from frame centre (-1..1)
-        float offsetX = (faceCenterX - frameCenterX) / frameCenterX;
-        float offsetY = (faceCenterY - frameCenterY) / frameCenterY;
-
-        // Map horizontal offset to yaw: roughly ±30° at the edges
-        // Note: subject-centric — face moving to screen-right means subject turned left → positive yaw
-        float yaw = -offsetX * 30.0f;
-
-        // Map vertical offset to pitch: face above centre → looking up → positive pitch
-        float pitch = -offsetY * 25.0f;
-
-        // Roll estimation from gradient asymmetry in left vs. right eye regions
-        float roll = estimateRollHeuristic(bgrFrame, faceRect);
-
-        return new float[]{yaw, pitch, roll};
-    }
-
-    /**
-     * Estimate roll from asymmetry of vertical gradients in the left and right halves of the face.
-     * A tilted head will have stronger gradients on the lower side.
-     */
-    private float estimateRollHeuristic(Mat bgrFrame, Rect faceRect) {
-        int eyeTop = faceRect.y + (int) (faceRect.height * 0.15);
-        int eyeBottom = faceRect.y + (int) (faceRect.height * 0.45);
-        int eyeHeight = eyeBottom - eyeTop;
-        int halfWidth = faceRect.width / 2;
-
-        if (eyeHeight < 4 || halfWidth < 4) {
-            return 0.0f;
-        }
-
-        // Left half
-        int lx = Math.max(0, faceRect.x);
-        int ly = Math.max(0, eyeTop);
-        int lw = Math.min(halfWidth, bgrFrame.cols() - lx);
-        int lh = Math.min(eyeHeight, bgrFrame.rows() - ly);
-
-        // Right half
-        int rx = Math.max(0, faceRect.x + halfWidth);
-        int ry = ly;
-        int rw = Math.min(halfWidth, bgrFrame.cols() - rx);
-        int rh = lh;
-
-        if (lw < 4 || lh < 4 || rw < 4 || rh < 4) {
-            return 0.0f;
-        }
-
-        double leftEnergy = regionGradientEnergy(bgrFrame, lx, ly, lw, lh);
-        double rightEnergy = regionGradientEnergy(bgrFrame, rx, ry, rw, rh);
-
-        double totalEnergy = leftEnergy + rightEnergy;
-        if (totalEnergy < 1.0) {
-            return 0.0f;
-        }
-
-        // Asymmetry ratio: positive if right side has more energy (tilted right)
-        double asymmetry = (rightEnergy - leftEnergy) / totalEnergy;
-        return (float) (asymmetry * 20.0); // Map to roughly ±10° range
-    }
-
-    private double regionGradientEnergy(Mat bgrFrame, int x, int y, int w, int h) {
-        Rect roi = new Rect(x, y, w, h);
-        Mat region = new Mat(bgrFrame, roi);
-        Mat gray = new Mat();
-        Imgproc.cvtColor(region, gray, Imgproc.COLOR_BGR2GRAY);
-
-        Mat sobel = new Mat();
-        Imgproc.Sobel(gray, sobel, CvType.CV_64F, 0, 1);
-        Core.convertScaleAbs(sobel, sobel);
-
-        double energy = Core.mean(sobel).val[0];
-
-        region.release();
-        gray.release();
-        sobel.release();
-
-        return energy;
     }
 
     // ======================================================================

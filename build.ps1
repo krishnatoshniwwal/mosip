@@ -16,13 +16,22 @@ $junitVersion = '1.10.2'
 $junitJar = Join-Path $libDir "junit-platform-console-standalone-$junitVersion.jar"
 $opencvJar = Join-Path $libDir 'opencv-4.9.0-0.jar'
 $onnxJar = Join-Path $libDir 'onnxruntime-1.17.0.jar'
+$modelDir = Join-Path $root 'models'
+# YuNet face detector, MIT licence, OpenCV model zoo. Pinned by hash so a changed file is never used.
+$yunetModel = Join-Path $modelDir 'face_detection_yunet_2023mar.onnx'
+$yunetSha256 = '8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4'
 
 function Download-IfMissing([string]$file, [string]$url, [string]$label) {
     if (-not (Test-Path $file)) {
         Write-Host "== Downloading $label"
         New-Item -ItemType Directory -Force (Split-Path $file) | Out-Null
         if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
-            & curl.exe -L -o $file $url
+            # -f: fail on HTTP errors instead of saving the error page; -sS: no progress, errors still shown
+            & curl.exe -fsSL -o $file $url
+            if ($LASTEXITCODE -ne 0) {
+                Remove-Item -ErrorAction SilentlyContinue $file
+                throw "Download failed: $url"
+            }
         } else {
             Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $file
         }
@@ -44,6 +53,11 @@ function Compile([string]$srcDir, [string]$outDir, [string]$classpath) {
 Download-IfMissing $junitJar "https://repo1.maven.org/maven2/org/junit/platform/junit-platform-console-standalone/$junitVersion/junit-platform-console-standalone-$junitVersion.jar" "JUnit console launcher"
 Download-IfMissing $opencvJar "https://repo1.maven.org/maven2/org/openpnp/opencv/4.9.0-0/opencv-4.9.0-0.jar" "OpenCV library"
 Download-IfMissing $onnxJar "https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime/1.17.0/onnxruntime-1.17.0.jar" "ONNX Runtime"
+Download-IfMissing $yunetModel "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx" "YuNet face detection model"
+if ((Get-FileHash -Algorithm SHA256 $yunetModel).Hash -ne $yunetSha256) {
+    Remove-Item $yunetModel
+    throw "Checksum mismatch for $yunetModel; the file was deleted. Re-run to download it again."
+}
 
 if (Test-Path $out) { Remove-Item -Recurse -Force $out }
 New-Item -ItemType Directory -Force $out | Out-Null
@@ -66,8 +80,9 @@ Compile "$root/liveness-live-demo/src/main/java" "$out/live" "$out/core;$out/cam
 if (-not $SkipTests) {
     Write-Host '== Compiling tests'
     Compile "$root/liveness-core/src/test/java" "$out/test" "$out/core;$junitJar"
+    Compile "$root/liveness-onnx-engine/src/test/java" "$out/onnx-test" "$out/core;$out/onnx;$opencvJar;$onnxJar;$junitJar"
     Write-Host '== Running tests'
-    & java -jar $junitJar execute --class-path "$out/core;$out/test" --scan-class-path --disable-banner --details=tree
+    & java -jar $junitJar execute --class-path "$out/core;$out/test;$out/onnx;$out/onnx-test;$opencvJar;$onnxJar" --scan-class-path --disable-banner --details=tree
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
 }
 

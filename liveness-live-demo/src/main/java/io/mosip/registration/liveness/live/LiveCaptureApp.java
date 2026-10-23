@@ -8,6 +8,7 @@ import io.mosip.registration.liveness.camera.OpenCvLoader;
 import io.mosip.registration.liveness.config.LivenessConfig;
 import io.mosip.registration.liveness.device.FaceCaptureDevice;
 import io.mosip.registration.liveness.device.FaceFrame;
+import io.mosip.registration.liveness.engine.LivenessEngineException;
 import io.mosip.registration.liveness.onnx.OnnxLivenessEngine;
 import io.mosip.registration.liveness.service.FaceLivenessService;
 import io.mosip.registration.liveness.service.LivenessHandle;
@@ -28,6 +29,7 @@ import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JList;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
@@ -83,13 +85,14 @@ public final class LiveCaptureApp {
     private final JLabel metrics = new JLabel(" ");
     private final JPanel diagnostics = new JPanel(new BorderLayout(0, 6));
 
-    public LiveCaptureApp(LivenessConfig config, String configSource, int cameraIndex) {
+    /** @throws LivenessEngineException if the liveness models cannot be loaded */
+    public LiveCaptureApp(LivenessConfig config, String configSource, int cameraIndex) throws LivenessEngineException {
         this.config = config;
         this.configSource = configSource;
 
         OpenCvLoader.ensureLoaded();
+        this.engine = new OnnxLivenessEngine(OnnxLivenessEngine.defaultModelDir());
         this.device = new OpenCvCameraDevice(cameraIndex, 15);
-        this.engine = new OnnxLivenessEngine(Paths.get("models"));
 
         AuditSink audit = event -> SwingUtilities.invokeLater(() -> appendAudit(event));
         this.service = new FaceLivenessService(config, engine, audit);
@@ -107,7 +110,15 @@ public final class LiveCaptureApp {
             source = "built-in defaults";
         }
         int camIndex = args.length > 1 ? Integer.parseInt(args[1]) : 0;
-        SwingUtilities.invokeLater(() -> new LiveCaptureApp(config, source, camIndex).show());
+        SwingUtilities.invokeLater(() -> {
+            try {
+                new LiveCaptureApp(config, source, camIndex).show();
+            } catch (LivenessEngineException e) {
+                JOptionPane.showMessageDialog(null, e.getMessage(), "Face liveness engine unavailable",
+                        JOptionPane.ERROR_MESSAGE);
+                System.exit(1);
+            }
+        });
     }
 
     private void show() {

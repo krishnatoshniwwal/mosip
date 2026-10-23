@@ -1,4 +1,4 @@
-﻿# MOSIP Registration Client: Face Liveness and Presentation Attack Detection
+# MOSIP Registration Client: Face Liveness and Presentation Attack Detection
 
 MOSIP Decode, problem statement 04. This adds face liveness and PAD to resident face capture, operator
 authentication and supervisor authentication, using a **hybrid passive → active** approach:
@@ -16,24 +16,31 @@ in behind interfaces, so no vendor is hard-wired.
 
 | Done | Not yet |
 |---|---|
-| Vendor-neutral device and engine interfaces | Real CV/anti-spoof model engine (v0.2) |
+| Vendor-neutral device and engine interfaces | Blink/smile from a dense landmark model |
+| Live webcam engine: YuNet face detection + landmark head pose (turn left/right challenges) | Threshold calibration on recorded live/spoof sessions |
+| MiniFASNet anti-spoofing (2-model ONNX ensemble, matches upstream output exactly) | |
 | Liveness state machine: passive, PAD, random challenges, retries, failure actions | Wiring into the JavaFX Registration Client screens |
 | Per-workflow configuration with strict validation | Android adapter + Flutter screen |
 | SBI `STREAM /stream` (MJPEG) device adapter | Signed model updates |
 | Mock L0/L1 device + simulated subject and engine (live, photo, screen, replay, …) | |
 | Audit events (no biometric data) and anonymous metrics | |
 | Reference capture UI (Swing) with diagnostic mode | |
-| 48 automated tests | |
+| 59 automated tests | |
 
-The simulated engine reports what a model would measure. It does **not** analyse real camera pixels. The real
-engine is the next milestone and plugs into the same `LivenessEngine` interface.
+The live engine (`liveness-onnx-engine`) detects faces with OpenCV's YuNet model and measures head turns
+from its five landmarks, so it only issues turn-left/turn-right challenges for now. Anti-spoofing uses the
+MiniFASNet models in `models/` (Apache-2.0, converted with `tools/convert_minifasnet.py`; see
+`models/NOTICE.md`). The simulated engine (`-Sim`) reports what a model would
+measure and does not analyse real pixels.
 
 ## Run it
 
-Needs JDK 11+. No Maven required (the scripts download the JUnit console launcher on first run).
+Needs JDK 11+. No Maven required: the scripts download JUnit, OpenCV, ONNX Runtime and the YuNet model
+(`models/`, checksum-verified) on first run. Maven users must run a script once to fetch the model, or point
+`-Dmosip.liveness.models=<dir>` at a folder containing `face_detection_yunet_2023mar.onnx`.
 
 ```powershell
-.\build.ps1          # compile + 48 tests
+.\build.ps1          # compile + 59 tests
 .\build.ps1 -Run     # launch LIVE webcam capture & real liveness
 .\build.ps1 -Run -Sim # launch simulated desktop demo (mock device)
 ```
