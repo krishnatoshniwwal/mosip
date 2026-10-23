@@ -1,4 +1,4 @@
-# MOSIP Registration Client: Face Liveness and Presentation Attack Detection
+﻿# MOSIP Registration Client: Face Liveness and Presentation Attack Detection
 
 MOSIP Decode, problem statement 04. This adds face liveness and PAD to resident face capture, operator
 authentication and supervisor authentication, using a **hybrid passive → active** approach:
@@ -34,7 +34,8 @@ Needs JDK 11+. No Maven required (the scripts download the JUnit console launche
 
 ```powershell
 .\build.ps1          # compile + 48 tests
-.\build.ps1 -Run     # ... then open the demo capture screen
+.\build.ps1 -Run     # launch LIVE webcam capture & real liveness
+.\build.ps1 -Run -Sim # launch simulated desktop demo (mock device)
 ```
 ```bash
 ./build.sh --run     # macOS / Linux / Git Bash

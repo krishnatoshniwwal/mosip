@@ -12,7 +12,10 @@
 
     <modules>
         <module>liveness-core</module>
+        <module>liveness-camera</module>
+        <module>liveness-onnx-engine</module>
         <module>liveness-desktop-demo</module>
+        <module>liveness-live-demo</module>
     </modules>
 
     <properties>
