@@ -34,6 +34,8 @@ final class SimulationHarness implements LivenessListener {
     final List<LivenessUpdate> updates = new ArrayList<>();
 
     LivenessSession session;
+    /** Answer to the camera notice given to each new session; null means "not asked". */
+    CameraConsent consent = CameraConsent.granted("test-notice", "en", 0);
     LivenessResult result;
     boolean autoRetry = true;
     Consumer<LivenessUpdate> onUpdate = u -> { };
@@ -59,6 +61,11 @@ final class SimulationHarness implements LivenessListener {
         session = new LivenessSession("test-session", LivenessWorkflow.RESIDENT_REGISTRATION, policy, engineInfo,
                 new ChallengeSelector(new Random(challengeSeed)), audit, metrics, subject.respondingTo(this),
                 rateLimiter, rateLimitKey);
+        if (consent != null) {
+            session.setCameraConsent(consent.isGranted()
+                    ? CameraConsent.granted(consent.getNoticeVersion(), consent.getLanguage(), clock.get())
+                    : CameraConsent.declined(consent.getNoticeVersion(), consent.getLanguage(), clock.get()));
+        }
         return session;
     }
 

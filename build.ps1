@@ -4,9 +4,11 @@
     .\build.ps1 -SkipTests  compile only
     .\build.ps1 -Run        compile, test, then launch LIVE webcam face liveness
     .\build.ps1 -Run -Sim   compile, test, then launch the simulated desktop demo
+    .\build.ps1 -Tool "interop --device webcam:0"   compile, then run a command-line tool (no tests)
   Maven users: mvn verify  (see pom.xml)
 #>
-param([switch]$Run, [switch]$Sim, [switch]$SkipTests)
+param([switch]$Run, [switch]$Sim, [switch]$SkipTests, [string]$Tool)
+if ($Tool) { $SkipTests = $true }
 $ErrorActionPreference = 'Stop'
 
 $root = $PSScriptRoot
@@ -85,6 +87,14 @@ if (-not $SkipTests) {
     Write-Host '== Running tests'
     & java -jar $junitJar execute --class-path "$out/core;$out/test;$out/onnx;$out/onnx-test;$opencvJar;$onnxJar" --scan-class-path --disable-banner --details=tree
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+}
+
+Write-Host '== Compiling liveness-tools (evaluation, interop, model packages)'
+Compile "$root/liveness-tools/src/main/java" "$out/tools" "$out/core;$out/camera;$out/onnx;$opencvJar;$onnxJar"
+
+if ($Tool) {
+    & java -cp "$out/core;$out/camera;$out/onnx;$out/tools;$opencvJar;$onnxJar" io.mosip.registration.liveness.tools.LivenessTools ($Tool -split ' ')
+    exit $LASTEXITCODE
 }
 
 if ($Run) {

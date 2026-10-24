@@ -92,6 +92,7 @@ public final class LivenessSession {
     private FailureReason finalReason;
     private FailureAction requiredAction;
     private long lockedUntil;
+    private CameraConsent consent;
 
     // Per-attempt state, reset by beginAttempt().
     private long phaseStart;
@@ -161,6 +162,11 @@ public final class LivenessSession {
         return state;
     }
 
+    /** The person's answer to the camera notice; must be set before {@link #start} when the policy requires consent. */
+    public synchronized void setCameraConsent(CameraConsent consent) {
+        this.consent = consent;
+    }
+
     public synchronized void start(long now) {
         if (state != LivenessState.NOT_STARTED) {
             throw new IllegalStateException("Session already started");
@@ -169,12 +175,39 @@ public final class LivenessSession {
         metrics.sessionStarted();
         audit(AuditEventType.SESSION_STARTED, now,
                 "engine", engineInfo.describe(), "policy", policy.summary());
+        if (!checkConsent(now)) {
+            return;
+        }
         long until = rateLimited() ? rateLimiter.lockedUntil(rateLimitKey, now) : 0;
         if (until > 0) {
             lockOut(until, "locked before session start", now);
             return;
         }
         beginAttempt(now);
+    }
+
+    /** @return false if the session ended because camera use was not allowed */
+    private boolean checkConsent(long now) {
+        if (!policy.isConsentRequired()) {
+            return true;
+        }
+        String problem = consent == null ? "not asked"
+                : !consent.isGranted() ? "declined"
+                : now - consent.getAnsweredAt() > policy.getConsentMaxAgeMs() ? "expired"
+                : null;
+        if (problem == null) {
+            audit(AuditEventType.CONSENT_GRANTED, now, "noticeVersion", consent.getNoticeVersion(),
+                    "language", consent.getLanguage(), "ageMs", String.valueOf(now - consent.getAnsweredAt()));
+            return true;
+        }
+        audit(AuditEventType.CONSENT_NOT_GIVEN, now, "reason", problem,
+                "noticeVersion", consent == null ? "n/a" : consent.getNoticeVersion());
+        finalReason = FailureReason.CONSENT_DECLINED;
+        requiredAction = policy.getRetryExhaustedAction();
+        state = LivenessState.FAILED;
+        metrics.cancelled();
+        complete(LivenessOutcome.FAILED, now);
+        return false;
     }
 
     private boolean rateLimited() {
@@ -737,6 +770,9 @@ public final class LivenessSession {
             case FAILED:
                 if (finalReason == FailureReason.LOCKED_OUT) {
                     return UserMessage.FINAL_LOCKED_OUT;
+                }
+                if (finalReason == FailureReason.CONSENT_DECLINED) {
+                    return UserMessage.FAIL_CONSENT;
                 }
                 if (finalReason != FailureReason.MAX_RETRIES_EXCEEDED) {
                     return UserMessage.FINAL_BLOCKED;

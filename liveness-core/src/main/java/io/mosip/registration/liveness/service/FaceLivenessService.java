@@ -8,6 +8,7 @@ import io.mosip.registration.liveness.config.LivenessConfig;
 import io.mosip.registration.liveness.device.FaceCaptureDevice;
 import io.mosip.registration.liveness.engine.LivenessEngine;
 import io.mosip.registration.liveness.session.AttemptRateLimiter;
+import io.mosip.registration.liveness.session.CameraConsent;
 import io.mosip.registration.liveness.session.LivenessListener;
 import io.mosip.registration.liveness.session.LivenessResult;
 import io.mosip.registration.liveness.session.LivenessSession;
@@ -68,17 +69,30 @@ public final class FaceLivenessService {
      * Opens the device, starts streaming and begins liveness verification. The device is stopped and
      * closed when the session ends.
      */
+    /** Without a consent: fails at once with {@code CONSENT_DECLINED} unless the policy has {@code consent.required=false}. */
     public LivenessHandle start(LivenessWorkflow workflow, FaceCaptureDevice device, LivenessListener listener) {
-        return start(workflow, null, device, listener);
+        return start(workflow, null, null, device, listener);
+    }
+
+    public LivenessHandle start(LivenessWorkflow workflow, CameraConsent consent, FaceCaptureDevice device,
+                                LivenessListener listener) {
+        return start(workflow, null, consent, device, listener);
+    }
+
+    public LivenessHandle start(LivenessWorkflow workflow, String subjectKey, FaceCaptureDevice device,
+                                LivenessListener listener) {
+        return start(workflow, subjectKey, null, device, listener);
     }
 
     /**
      * @param subjectKey who failed attempts are counted against for rate limiting: the operator or
      *                   supervisor user ID for authentication, the registration ID for a resident; null
      *                   counts against the whole station for this workflow
+     * @param consent    the person's answer to the camera notice; the device is opened only if the policy does
+     *                   not require consent or this is a fresh, granted consent
      */
-    public LivenessHandle start(LivenessWorkflow workflow, String subjectKey, FaceCaptureDevice device,
-                                LivenessListener listener) {
+    public LivenessHandle start(LivenessWorkflow workflow, String subjectKey, CameraConsent consent,
+                                FaceCaptureDevice device, LivenessListener listener) {
         AtomicReference<LivenessResult> finished = new AtomicReference<>();
         LivenessListener recording = new LivenessListener() {
             @Override
@@ -100,6 +114,7 @@ public final class FaceLivenessService {
         LivenessSession session = new LivenessSession(UUID.randomUUID().toString(), workflow,
                 config.policyFor(workflow), engine.info(), selector, audit, metrics, recording,
                 rateLimiter, workflow.configKey() + ":" + (subjectKey == null ? "*station*" : subjectKey));
+        session.setCameraConsent(consent);
         LivenessHandle handle = new LivenessHandle(session, device, engine, metrics, clock, recording, finished);
         handle.begin();
         return handle;

@@ -46,6 +46,11 @@ KEYS = [
     "liveness.ui.timeLeft",
     "liveness.ui.pressRetry",
     "liveness.ui.lockedUntil",
+    "liveness.fail.consent",
+    "liveness.ui.consentTitle",
+    "liveness.ui.consentText",
+    "liveness.ui.allow",
+    "liveness.ui.deny",
 ]
 # UI patterns with {n} arguments go through java.text.MessageFormat: apostrophes must be doubled.
 FORMATTED = {"liveness.ui.attempt", "liveness.ui.challenge", "liveness.ui.timeLeft", "liveness.ui.lockedUntil"}
@@ -93,6 +98,11 @@ T["fr"] = ("Français", [
     "Temps restant : {0} s",
     "Appuyez sur « Réessayer » pour recommencer.",
     "Bloqué jusqu'à {0}",
+    "La capture du visage ne peut pas continuer sans l'autorisation d'utiliser la caméra.",
+    "Autorisation de la caméra",
+    "Pour capturer votre visage et confirmer que vous êtes présent en personne, cette application doit allumer la caméra. Les images sont traitées sur cet appareil et ne sont envoyées nulle part pour la vérification de vivacité. Autorisez-vous l'utilisation de la caméra ?",
+    "Autoriser",
+    "Ne pas autoriser",
 ])
 
 T["ar"] = ("العربية", [
@@ -136,6 +146,11 @@ T["ar"] = ("العربية", [
     "الوقت المتبقي: {0} ث",
     "اضغط على «إعادة المحاولة» للمحاولة مرة أخرى.",
     "مقفل حتى {0}",
+    "لا يمكن متابعة التقاط الوجه دون إذن باستخدام الكاميرا.",
+    "إذن الكاميرا",
+    "لالتقاط صورة وجهك والتأكد من حضورك شخصيًا، يحتاج هذا التطبيق إلى تشغيل الكاميرا. تتم معالجة الصور على هذا الجهاز ولا تُرسل إلى أي مكان للتحقق من الحيوية. هل تسمح باستخدام الكاميرا؟",
+    "سماح",
+    "عدم السماح",
 ])
 
 T["hi"] = ("हिन्दी", [
@@ -179,6 +194,11 @@ T["hi"] = ("हिन्दी", [
     "शेष समय: {0} से.",
     "दोबारा कोशिश करने के लिए \"पुनः प्रयास\" दबाएँ।",
     "{0} तक लॉक",
+    "कैमरे के उपयोग की अनुमति के बिना चेहरा कैप्चर जारी नहीं रह सकता।",
+    "कैमरा अनुमति",
+    "आपका चेहरा कैप्चर करने और यह पुष्टि करने के लिए कि आप स्वयं उपस्थित हैं, इस एप्लिकेशन को कैमरा चालू करना होगा। तस्वीरें इसी डिवाइस पर संसाधित होती हैं और सजीवता जाँच के लिए कहीं नहीं भेजी जातीं। क्या आप कैमरे के उपयोग की अनुमति देते हैं?",
+    "अनुमति दें",
+    "अनुमति न दें",
 ])
 
 T["kn"] = ("ಕನ್ನಡ", [
@@ -222,6 +242,11 @@ T["kn"] = ("ಕನ್ನಡ", [
     "ಉಳಿದ ಸಮಯ: {0} ಸೆ",
     "ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು \"ಮರುಪ್ರಯತ್ನಿಸಿ\" ಒತ್ತಿರಿ.",
     "{0} ರವರೆಗೆ ಲಾಕ್ ಆಗಿದೆ",
+    "ಕ್ಯಾಮೆರಾ ಬಳಸುವ ಅನುಮತಿ ಇಲ್ಲದೆ ಮುಖ ಸೆರೆಹಿಡಿಯುವಿಕೆ ಮುಂದುವರಿಯಲು ಸಾಧ್ಯವಿಲ್ಲ.",
+    "ಕ್ಯಾಮೆರಾ ಅನುಮತಿ",
+    "ನಿಮ್ಮ ಮುಖವನ್ನು ಸೆರೆಹಿಡಿಯಲು ಮತ್ತು ನೀವು ಖುದ್ದಾಗಿ ಹಾಜರಿದ್ದೀರಿ ಎಂದು ಖಚಿತಪಡಿಸಲು, ಈ ಅಪ್ಲಿಕೇಶನ್ ಕ್ಯಾಮೆರಾವನ್ನು ಆನ್ ಮಾಡಬೇಕಾಗುತ್ತದೆ. ಚಿತ್ರಗಳನ್ನು ಈ ಸಾಧನದಲ್ಲೇ ಸಂಸ್ಕರಿಸಲಾಗುತ್ತದೆ ಮತ್ತು ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆಗಾಗಿ ಎಲ್ಲಿಗೂ ಕಳುಹಿಸಲಾಗುವುದಿಲ್ಲ. ಕ್ಯಾಮೆರಾ ಬಳಸಲು ನೀವು ಅನುಮತಿಸುತ್ತೀರಾ?",
+    "ಅನುಮತಿಸಿ",
+    "ಅನುಮತಿಸಬೇಡಿ",
 ])
 
 T["ta"] = ("தமிழ்", [
@@ -265,6 +290,11 @@ T["ta"] = ("தமிழ்", [
     "மீதமுள்ள நேரம்: {0} வி",
     "மீண்டும் முயற்சிக்க \"மீண்டும் முயற்சி\" என்பதை அழுத்தவும்.",
     "{0} வரை பூட்டப்பட்டுள்ளது",
+    "கேமராவைப் பயன்படுத்த அனுமதி இல்லாமல் முகப் பதிவைத் தொடர முடியாது.",
+    "கேமரா அனுமதி",
+    "உங்கள் முகத்தைப் பதிவு செய்யவும் நீங்கள் நேரில் இருப்பதை உறுதிசெய்யவும் இந்தப் பயன்பாடு கேமராவை இயக்க வேண்டும். படங்கள் இந்தச் சாதனத்திலேயே செயலாக்கப்படுகின்றன; உயிர்த்தன்மைச் சரிபார்ப்புக்காக எங்கும் அனுப்பப்படுவதில்லை. கேமராவைப் பயன்படுத்த அனுமதிக்கிறீர்களா?",
+    "அனுமதி",
+    "அனுமதிக்க வேண்டாம்",
 ])
 
 T["fil"] = ("Filipino", [
@@ -308,6 +338,11 @@ T["fil"] = ("Filipino", [
     "Natitirang oras: {0} s",
     "Pindutin ang \"Subukang muli\" para umulit.",
     "Naka-lock hanggang {0}",
+    "Hindi maipagpapatuloy ang pagkuha ng mukha nang walang pahintulot na gamitin ang camera.",
+    "Pahintulot sa camera",
+    "Para makuha ang iyong mukha at makumpirmang personal kang naroroon, kailangang buksan ng application na ito ang camera. Pinoproseso ang mga larawan sa device na ito at hindi ipinapadala kahit saan para sa pagsusuri. Pinapayagan mo bang gamitin ang camera?",
+    "Payagan",
+    "Huwag payagan",
 ])
 
 T["am"] = ("አማርኛ", [
@@ -351,6 +386,11 @@ T["am"] = ("አማርኛ", [
     "የቀረው ጊዜ፦ {0} ሰ",
     "እንደገና ለመሞከር \"እንደገና ሞክር\" የሚለውን ይጫኑ።",
     "እስከ {0} ድረስ ተቆልፏል",
+    "ካሜራውን ለመጠቀም ፈቃድ ከሌለ የፊት ምስል መያዝ መቀጠል አይችልም።",
+    "የካሜራ ፈቃድ",
+    "ፊትዎን ለመያዝ እና በአካል መገኘትዎን ለማረጋገጥ ይህ መተግበሪያ ካሜራውን ማብራት ያስፈልገዋል። ምስሎቹ በዚህ መሣሪያ ላይ ይሰራሉ፤ ለሕያውነት ማረጋገጫ ወደ የትም አይላኩም። ካሜራውን ለመጠቀም ይፈቅዳሉ?",
+    "ፍቀድ",
+    "አትፍቀድ",
 ])
 
 T["si"] = ("සිංහල", [
@@ -394,6 +434,11 @@ T["si"] = ("සිංහල", [
     "ඉතිරි කාලය: {0} තත්.",
     "නැවත උත්සාහ කිරීමට \"නැවත උත්සාහ කරන්න\" ඔබන්න.",
     "{0} දක්වා අගුළු දමා ඇත",
+    "කැමරාව භාවිත කිරීමට අවසරය නොමැතිව මුහුණු ග්‍රහණය දිගටම කරගෙන යා නොහැක.",
+    "කැමරා අවසරය",
+    "ඔබේ මුහුණ ග්‍රහණය කිරීමට සහ ඔබ පුද්ගලිකව සිටින බව තහවුරු කිරීමට, මෙම යෙදුමට කැමරාව ක්‍රියාත්මක කිරීමට අවශ්‍ය වේ. රූප මෙම උපාංගයේම සකසනු ලබන අතර සජීවීභාව පරීක්ෂාව සඳහා කොතැනකටවත් යවනු නොලැබේ. කැමරාව භාවිත කිරීමට ඔබ අවසර දෙනවාද?",
+    "අවසර දෙන්න",
+    "අවසර නොදෙන්න",
 ])
 
 HEADER = """# Face liveness messages: {name} ({lang}). UTF-8, loaded by LivenessMessages through a Reader.

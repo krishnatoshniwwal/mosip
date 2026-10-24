@@ -68,6 +68,8 @@ public final class LivenessConfig {
         KEYS.put("rateLimit.maxFailures", (b, v) -> b.rateLimitMaxFailures(parseInt(v)));
         KEYS.put("rateLimit.windowMs", (b, v) -> b.rateLimitWindowMs(parseLong(v)));
         KEYS.put("rateLimit.lockoutMs", (b, v) -> b.rateLimitLockoutMs(parseLong(v)));
+        KEYS.put("consent.required", (b, v) -> b.consentRequired(parseBoolean(v)));
+        KEYS.put("consent.maxAgeMs", (b, v) -> b.consentMaxAgeMs(parseLong(v)));
     }
 
     private final Map<LivenessWorkflow, LivenessPolicy> policies;

@@ -16,6 +16,7 @@ import io.mosip.registration.liveness.mock.SimulatedSubject.Presentation;
 import io.mosip.registration.liveness.mock.SimulatedSubject.ResponseMode;
 import io.mosip.registration.liveness.service.FaceLivenessService;
 import io.mosip.registration.liveness.service.LivenessHandle;
+import io.mosip.registration.liveness.session.CameraConsent;
 import io.mosip.registration.liveness.session.LivenessListener;
 import io.mosip.registration.liveness.session.LivenessResult;
 import io.mosip.registration.liveness.session.LivenessState;
@@ -31,9 +32,11 @@ import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
+import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JList;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
@@ -370,7 +373,9 @@ public final class LivenessDemoApp {
         cancel.setEnabled(true);
         tips.setText(" ");
         preview.setCaptureArea(config.policyFor(selected).getCaptureArea());
-        handle = service.start(selected, device, subject.respondingTo(new LivenessListener() {
+        CameraConsent consent = askCameraConsent();
+        appendLine("Camera permission: " + (consent.isGranted() ? "allowed" : "not allowed - camera stays off"));
+        handle = service.start(selected, consent, device, subject.respondingTo(new LivenessListener() {
             @Override
             public void onUpdate(LivenessUpdate update) {
                 SwingUtilities.invokeLater(() -> render(update));
@@ -386,6 +391,27 @@ public final class LivenessDemoApp {
                 preview.showFrame(f);
             }
         }));
+    }
+
+    /**
+     * Asks before the camera is turned on, on every Start. Closing the dialog counts as "Don't allow", and
+     * "Don't allow" is the default button, so consent is always an explicit choice.
+     */
+    private CameraConsent askCameraConsent() {
+        Object[] options = {messages.ui(LivenessMessages.UI_ALLOW), messages.ui(LivenessMessages.UI_DENY)};
+        JOptionPane pane = new JOptionPane("<html><body style='width:360px'>"
+                + messages.ui(LivenessMessages.UI_CONSENT_TEXT) + "</body></html>",
+                JOptionPane.QUESTION_MESSAGE, JOptionPane.DEFAULT_OPTION, null, options, options[1]);
+        pane.setComponentOrientation(messages.isRightToLeft()
+                ? ComponentOrientation.RIGHT_TO_LEFT : ComponentOrientation.LEFT_TO_RIGHT);
+        JDialog dialog = pane.createDialog(frame, messages.ui(LivenessMessages.UI_CONSENT_TITLE));
+        dialog.setVisible(true);
+        dialog.dispose();
+        boolean granted = options[0].equals(pane.getValue());
+        long now = System.currentTimeMillis();
+        return granted
+                ? CameraConsent.granted(LivenessMessages.CONSENT_NOTICE_VERSION, messages.language(), now)
+                : CameraConsent.declined(LivenessMessages.CONSENT_NOTICE_VERSION, messages.language(), now);
     }
 
     private void render(LivenessUpdate u) {

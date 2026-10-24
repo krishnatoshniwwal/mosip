@@ -8,6 +8,7 @@ import io.mosip.registration.liveness.engine.FrameAnalysis;
 import io.mosip.registration.liveness.engine.LivenessEngine;
 import io.mosip.registration.liveness.engine.LivenessEngineException;
 import io.mosip.registration.liveness.engine.PadResult;
+import io.mosip.registration.liveness.model.ModelRepository;
 
 import org.opencv.core.Mat;
 import org.opencv.core.Rect;
@@ -37,6 +38,8 @@ public final class OnnxLivenessEngine implements LivenessEngine {
 
     /** System property overriding the model directory (default: {@code models} in the working directory). */
     public static final String MODEL_DIR_PROPERTY = "mosip.liveness.models";
+    /** Engine version, checked against a model package's {@code engine.minVersion}. */
+    public static final String ENGINE_VERSION = "1.2.0";
 
     private static final Logger LOG = Logger.getLogger(OnnxLivenessEngine.class.getName());
     private static final Set<ChallengeType> MEASURABLE_CHALLENGES =
@@ -51,17 +54,34 @@ public final class OnnxLivenessEngine implements LivenessEngine {
     private volatile String lastDiagnostics = "no frame analysed yet";
 
     /**
+     * Development use: loads models from a plain directory without verifying them. Production clients
+     * use {@link #OnnxLivenessEngine(ModelRepository.ActiveModel)}.
+     *
      * @param modelDir directory holding the model files
      * @throws LivenessEngineException if the face detection model is missing or unusable
      */
     public OnnxLivenessEngine(Path modelDir) throws LivenessEngineException {
+        this(modelDir, "unverified-dir");
+        LOG.warning("Liveness models loaded from an unverified directory " + modelDir
+                + "; use a signed model package in production");
+    }
+
+    /**
+     * Loads the models of a signed package that {@link ModelRepository#activate()} has just verified.
+     * The package identity goes into {@code EngineInfo.modelVersion} and so into every session's audit.
+     */
+    public OnnxLivenessEngine(ModelRepository.ActiveModel model) throws LivenessEngineException {
+        this(model.getDirectory(), "pkg " + model.getManifest().label());
+    }
+
+    private OnnxLivenessEngine(Path modelDir, String source) throws LivenessEngineException {
         this.faceDetector = new FaceDetector(modelDir);
         this.landmarkAnalyzer = new FaceLandmarkAnalyzer(modelDir);
         this.antiSpoofAnalyzer = new AntiSpoofAnalyzer(modelDir);
 
         String modelVersion = "yunet-2023mar+" + (antiSpoofAnalyzer.isUsingModel() ? "minifasnet" : "heuristic-pad")
-                + "+replay-cues+occlusion";
-        this.engineInfo = new EngineInfo("MOSIP Real-Time Liveness Engine", "1.2.0", modelVersion,
+                + "+replay-cues+occlusion (" + source + ")";
+        this.engineInfo = new EngineInfo("MOSIP Real-Time Liveness Engine", ENGINE_VERSION, modelVersion,
                 MEASURABLE_CHALLENGES, true);
     }
 

@@ -283,6 +283,8 @@ All keys live under `mosip.registration.liveness.` and can be overridden per wor
 | `occlusion.allowCapture` | false | Whether the final image may show a covered face |
 | `rateLimit.enabled` | true | Lock out after repeated failures |
 | `rateLimit.maxFailures` / `windowMs` / `lockoutMs` | 5 / 600000 / 900000 | Failures within the window that trigger a lockout, and its length |
+| `consent.required` | true | Person must explicitly allow camera use before the device is opened |
+| `consent.maxAgeMs` | 300000 | Oldest consent accepted at session start |
 
 Validation is strict: unknown keys (typos), out-of-range values and inconsistent combinations
 (`active.always` without `active.enabled`, `minChallenges` > pool) fail at load time with the key named.
@@ -303,6 +305,7 @@ Validation is strict: unknown keys (typos), out-of-range values and inconsistent
 | Wrong action / continuity broken | `CHALLENGE_FAILED` | Yes | + "Follow the prompted action" |
 | Challenge not done in time | `CHALLENGE_TIMEOUT` | Yes | same |
 | Retry budget exhausted | `MAX_RETRIES_EXCEEDED` | n/a | Message for the configured `FailureAction` |
+| Camera use not allowed (declined, not asked, or answer too old) | `CONSENT_DECLINED` | terminal | "Face capture cannot continue without permission to use the camera", the workflow's `retry.exhaustedAction`; camera never opened |
 | Rate limit reached (this or earlier sessions) | `LOCKED_OUT` | terminal | "Too many unsuccessful attempts… temporarily locked", `BLOCK`, lockout end in `LivenessResult.getLockedUntil()` |
 | Challenge pool unsatisfiable | `CONFIGURATION_ERROR` | terminal | generic, `BLOCK` |
 
@@ -315,6 +318,14 @@ Faults that are not the person's doing never use up their attempts. Retry after 
 - **Least disclosure to the user**: PAD failures show a generic message. Attack type and scores are only
   in audit/diagnostics, so an attacker learns nothing about what the detector saw.
 - **Unpredictability**: `SecureRandom` count and order; no repeats; a different sequence on retry.
+- **Explicit camera consent**: before every capture the screen shows a translated notice (what the camera is
+  for, that images are processed on the device) with *Allow* / *Don't allow*. *Don't allow* is the default, and
+  closing the dialog counts as a refusal. The answer goes to the service as a `CameraConsent` (granted or
+  declined, time, notice version `camera-notice-v1`, language). The service opens the device only for a
+  granted consent no older than `consent.maxAgeMs`; otherwise the session ends with `CONSENT_DECLINED`
+  before any device call. Audit: `CONSENT_GRANTED` (REG-LIV-015) / `CONSENT_NOT_GIVEN` (REG-LIV-016, with
+  reason `declined`, `not asked` or `expired`). Sessions that end at start for any reason (no consent,
+  lockout) never touch the camera. The interop tool asks on the terminal before using a real camera.
 - **Brute-force resistance**: failed attempts are rate limited across sessions per subject, with lockout
   state persisted (hashed keys) so a restart does not clear it. Audit events `OCCLUSION_FALLBACK`
   (REG-LIV-013) and `RATE_LIMIT_LOCKOUT` (REG-LIV-014) record fallbacks and lockouts.
@@ -322,10 +333,21 @@ Faults that are not the person's doing never use up their attempts. Retry after 
   unknown config keys are rejected.
 - **Offline parity**: engine, challenge generation and action validation are all local; the network is
   never consulted for a liveness decision.
-- **Model and config integrity (planned)**: model packages are distributed through the client's existing
-  sync, accompanied by a signed manifest (SHA-256 + signature verified against the client's trusted key).
-  The engine refuses to load an unverified model, and the model version is recorded in every
-  `SESSION_STARTED` audit event (`EngineInfo.modelVersion`).
+- **Model integrity and safe offline updates** (`model/`): a model package is a flat directory plus
+  `manifest.properties` (name, version, monotonically increasing `package.sequence`, `engine.minVersion`,
+  SHA-256 and size of every file) and `manifest.sig` (ECDSA P-256/SHA-256, available on Java 11 and Android
+  without extra libraries). `ModelPackageVerifier` checks the signature against the trusted release keys
+  (several allowed, for key rotation), every file's size and hash, that there are no unlisted files or links,
+  and that the engine is new enough. `ModelRepository` installs a package by verifying it, copying it to
+  staging, **verifying the copy**, moving it into place and switching the `active` pointer with an atomic
+  rename, so a power cut never leaves a half-installed model. A package whose sequence is not higher than
+  any installed before is refused (**rollback protection** against replaying an old, signed but weaker
+  model). The active package is **re-verified at every engine start**, so files tampered with on disk stop
+  the engine (fail closed), and an explicit `rollback()` returns to the previous verified package. The
+  package label (`name version #sequence`) is in `EngineInfo.modelVersion` and so in every
+  `SESSION_STARTED` audit event. Updates arrive through the client's sync when online, or on removable
+  media offline; verification itself never needs the network. The release private key never ships to
+  clients. Tool: `LivenessTools models keygen|sign|verify|install|status|rollback`.
 - **Device trust**: SBI L0/L1 signing of the final `/capture` response still applies. Liveness adds a check
   on the presentation itself, not on device authenticity.
 
@@ -333,12 +355,20 @@ Faults that are not the person's doing never use up their attempts. Retry after 
 
 - **Terminology (30107-1)**: `AttackType` follows PAI species (printed photo, screen display, video
   replay, mask). The PAD subsystem is the engine; the challenge-response layer adds system-level resistance.
-- **Evaluation (30107-3)** plan for a chosen engine:
-  - Bona fide and attack presentation sets per PAI species, captured on the target L0/L1 devices,
-    lighting and demographics.
-  - Report **APCER per PAI species** (worst case across species), **BPCER** at the configured
-    `passive.threshold`, and DET curves to choose thresholds per workflow.
-  - System-level test with challenges enabled: report the impostor attack presentation accept rate (**IAPAR**) for replay attacks.
+- **Evaluation (30107-3)**: `LivenessTools evaluate <dataset>` runs the on-device engine over a labelled
+  dataset (`bona_fide/`, `attack/<PAI species>/`; images and videos, a video scored like a session) and
+  writes `report.md`, `det.csv` and `scores.csv` (file names and scores only):
+  - **APCER per PAI species** and the **worst case** over species, **BPCER**, each with a Wilson 95%
+    confidence interval, so a 0% APCER on a small set is reported as "below x%".
+  - Three operating points: the engine's own PAD verdict (attacks not blocked), the configured
+    `passive.threshold` (attacks that would also skip active challenges), and **BPCER10/20/100**
+    (lowest BPCER with worst-case APCER ≤ 10/5/1%), plus the equal-error point and the DET curve.
+  - Non-response rates per population, kept separate: a non-response is never counted as acceptance.
+  - Per-frame processing time, and a recommended `passive.threshold` for APCER ≤ 5%.
+  - Data still has to be collected: bona fide and attack presentations per PAI species, on the target
+    L0/L1 devices, lighting and demographics. The harness makes each collection round reproducible.
+  - System-level test with challenges enabled: report the impostor attack presentation accept rate (**IAPAR**) for replay attacks
+    (the session simulation tests cover this today with simulated replays).
   - Track **BPCER impact on UX**: % of bona fide sessions escalated to active, retry rate, completion time
     (already emitted by `LivenessMetrics`).
 - **ISO/IEC 19794-5**: the captured frame is chosen for frontal pose, open eyes and highest quality, in line with
@@ -346,7 +376,7 @@ Faults that are not the person's doing never use up their attempts. Retry after 
 
 ## 9. Testing
 
-106 automated tests across `liveness-core` and `liveness-onnx-engine` (`build.ps1` / `build.sh` / `mvn verify`):
+143 automated tests across `liveness-core` and `liveness-onnx-engine` (`build.ps1` / `build.sh` / `mvn verify`):
 
 - **Session (deterministic, virtual clock):** passive-only pass; low score → random challenges → pass;
   `active.always`; unresponsive subject exhausts retries with the configured action; printed photo
@@ -369,6 +399,28 @@ Faults that are not the person's doing never use up their attempts. Retry after 
 - **Engine cues (synthetic images, OpenCV):** moiré grating, flat vs shaded lighting, phone bezel, JPEG grid
   exclusion, verdict combination; occlusion for mask, sunglasses, both, beard (not a mask), darker skin tone.
 
+- **Model packages:** signature, tampered file, unlisted file, edited manifest, foreign key, key rotation,
+  engine too old, install/activate/prune, replay of an older package refused (also after packages are
+  deleted), re-delivery no-op, failed install leaves the active package intact, tampering after install
+  detected at activation, explicit rollback, empty repository fails closed, PEM round trip.
+- **PAD metrics:** per-species and worst-case APCER, BPCER, engine verdict, BPCER10/100 thresholds, Wilson
+  intervals, non-response handling, dataset scanning and report files.
+- **Interoperability kit:** the mock device conforms (including disconnect/reconnect); a misbehaving adapter
+  fails exactly the format, order, well-formedness, frame-rate and stop checks; an unavailable device fails
+  open; the engine benchmark reports latency and failures.
+
+### Interoperability and performance testing
+
+`DeviceConformanceSuite` runs any `FaceCaptureDevice` adapter through the behaviour the service relies on:
+identification and declared formats, open (with a typed `DeviceException` on failure), first-frame latency,
+steady frame rate and jitter, well-formed frames in declared formats, resolution, increasing sequence numbers
+and monotonic timestamps, no frames after `stopStream`, clean restart, disconnect reported through the
+listener and recovery after reconnection, idempotent close. `EngineBenchmark` measures per-frame latency
+(median/p95/p99/max), throughput, failures and heap growth on the target machine and says whether the engine
+keeps up with the device frame rate. `LivenessTools interop --device webcam:0|sbi:HOST:PORT|mock
+[--disconnect manual]` runs both and writes one Markdown report per device and machine type, which is the
+interoperability evidence for each supported vendor.
+
 The mock device plus `SimulatedSubject` (live / photo / screen / replay / nobody / two people; placement in
 the frame; mask or sunglasses; cooperative / unresponsive / wrong action) is the automated liveness and PAD scenario framework from the bonus tasks.
 
@@ -380,4 +432,4 @@ the frame; mask or sunglasses; cooperative / unresponsive / wrong action) is the
 | v0.2 | Real on-device engine: face landmarks (eye openness, smile, pose) + passive anti-spoof CNN via ONNX Runtime (desktop) / TFLite (Android); calibration of thresholds |
 | v0.3 | JavaFX integration in the Desktop client (resident capture, operator/supervisor auth); MDS device discovery |
 | v0.4 | Android adapter (CameraX/vendor SDK), Flutter UI, low-resource optimisations (frame skipping, NNAPI/GPU delegate) |
-| v0.5 | Signed model packages + version management, ISO/IEC 30107-3 evaluation report |
+| v0.5 | ~~Signed model packages + version management~~ (done), ~~ISO/IEC 30107-3 evaluation harness~~ (done); evaluation report on collected device data |

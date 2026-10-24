@@ -8,3 +8,4 @@ target/
 models/*.onnx
 models/*.caffemodel
 !models/minifasnet_*.onnx
+interop-report.md

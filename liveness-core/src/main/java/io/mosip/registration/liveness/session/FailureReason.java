@@ -31,6 +31,8 @@ public enum FailureReason {
     CHALLENGE_TIMEOUT(true, false, FAIL_LIVENESS, GUIDE_FOLLOW_ACTION, GUIDE_FACE_IN_AREA),
     /** Final result only: the configured retry limit was reached. */
     MAX_RETRIES_EXCEEDED(true, true, FAIL_LIVENESS),
+    /** Final result only: camera use was not allowed (declined, not asked, or the answer was too old); the camera was never opened. */
+    CONSENT_DECLINED(false, true, FAIL_CONSENT),
     /** Final result only: too many failures within the rate-limit window; verification is locked for a while. */
     LOCKED_OUT(false, true, FINAL_LOCKED_OUT);
 

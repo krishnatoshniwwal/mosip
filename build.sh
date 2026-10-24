@@ -4,6 +4,7 @@
 #   ./build.sh --skip-tests
 #   ./build.sh --run       compile, test, then launch live webcam capture
 #   ./build.sh --run --sim compile, test, then launch simulated mock demo
+#   ./build.sh tool evaluate|interop|models ...   compile, then run a command-line tool (no tests)
 # Maven users: mvn verify  (see pom.xml)
 set -euo pipefail
 
@@ -21,7 +22,10 @@ YUNET_SHA256=8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
 SEP=':'
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) SEP=';' ;; esac
 
-RUN=0; SIM=0; SKIP_TESTS=0
+RUN=0; SIM=0; SKIP_TESTS=0; TOOL=0; TOOL_ARGS=()
+if [ "${1:-}" = "tool" ]; then
+  shift; TOOL=1; TOOL_ARGS=("$@"); set -- --skip-tests
+fi
 for arg in "$@"; do
   case "$arg" in
     --run) RUN=1 ;;
@@ -75,6 +79,9 @@ compile "$ROOT/liveness-desktop-demo/src/main/java" "$OUT/demo" "$OUT/core"
 echo "== Compiling liveness-live-demo (live webcam UI)"
 compile "$ROOT/liveness-live-demo/src/main/java" "$OUT/live" "$OUT/core$SEP$OUT/camera$SEP$OUT/onnx$SEP$OPENCV_JAR$SEP$ONNX_JAR"
 
+echo "== Compiling liveness-tools (evaluation, interop, model packages)"
+compile "$ROOT/liveness-tools/src/main/java" "$OUT/tools" "$OUT/core$SEP$OUT/camera$SEP$OUT/onnx$SEP$OPENCV_JAR$SEP$ONNX_JAR"
+
 if [ "$SKIP_TESTS" -eq 0 ]; then
   echo "== Compiling tests"
   compile "$ROOT/liveness-core/src/test/java" "$OUT/test" "$OUT/core$SEP$JUNIT_JAR"
@@ -91,4 +98,9 @@ if [ "$RUN" -eq 1 ]; then
     echo "== Launching LIVE webcam capture and face liveness verification"
     java -cp "$OUT/core$SEP$OUT/camera$SEP$OUT/onnx$SEP$OUT/live$SEP$OPENCV_JAR$SEP$ONNX_JAR" io.mosip.registration.liveness.live.LiveCaptureApp
   fi
+fi
+
+if [ "$TOOL" -eq 1 ]; then
+  java -cp "$OUT/core$SEP$OUT/camera$SEP$OUT/onnx$SEP$OUT/tools$SEP$OPENCV_JAR$SEP$ONNX_JAR" \
+    io.mosip.registration.liveness.tools.LivenessTools ${TOOL_ARGS[@]+"${TOOL_ARGS[@]}"}
 fi

@@ -76,7 +76,10 @@ public final class LivenessHandle {
     void begin() {
         submit(() -> {
             session.start(clock.getAsLong());
-            openAndStream();
+            // Never touch the camera for a session that ended at start (no consent, locked out).
+            if (!session.state().isTerminal()) {
+                openAndStream();
+            }
             afterStep();
         });
         ticker.scheduleAtFixedRate(() -> submit(() -> {

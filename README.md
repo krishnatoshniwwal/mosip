@@ -24,6 +24,9 @@ in behind interfaces, so no vendor is hard-wired.
 | Occlusion handling (mask, scarf, sunglasses) with region-safe challenge fallback | |
 | Cross-session rate limiting with lockout persisted across restarts | |
 | Localised prompts: English, French, Arabic (RTL), Hindi, Kannada, Tamil, Filipino, Amharic, Sinhala | |
+| Signed model packages: ECDSA manifest, rollback protection, atomic install, tamper check at start | |
+| ISO/IEC 30107-3 evaluation harness: APCER per species, BPCER, BPCER10/20/100, DET, confidence intervals | Evaluation on data collected from target devices |
+| Device interoperability conformance suite + engine performance benchmark | Running it on each supported vendor device |
 | Live webcam engine: YuNet face detection + landmark head pose (turn left/right challenges) | Threshold calibration on recorded live/spoof sessions |
 | MiniFASNet anti-spoofing (2-model ONNX ensemble, matches upstream output exactly) | |
 | Liveness state machine: passive, PAD, random challenges, retries, failure actions | Wiring into the JavaFX Registration Client screens |
@@ -32,7 +35,8 @@ in behind interfaces, so no vendor is hard-wired.
 | Mock L0/L1 device + simulated subject and engine (live, photo, screen, replay, …) | |
 | Audit events (no biometric data) and anonymous metrics | |
 | Reference capture UI (Swing) with diagnostic mode | |
-| 106 automated tests | |
+| Explicit camera consent before the device is opened (enforced by the service, audited, translated) | |
+| 143 automated tests | |
 
 The live engine (`liveness-onnx-engine`) detects faces with OpenCV's YuNet model and measures head turns
 from its five landmarks, so it only issues turn-left/turn-right challenges for now. Anti-spoofing uses the
@@ -47,7 +51,7 @@ Needs JDK 11+. No Maven required: the scripts download JUnit, OpenCV, ONNX Runti
 `-Dmosip.liveness.models=<dir>` at a folder containing `face_detection_yunet_2023mar.onnx`.
 
 ```powershell
-.\build.ps1          # compile + 106 tests
+.\build.ps1          # compile + 143 tests
 .\build.ps1 -Run     # launch LIVE webcam capture & real liveness
 .\build.ps1 -Run -Sim # launch simulated desktop demo (mock device)
 ```
@@ -61,6 +65,25 @@ front of the camera (live person, low passive score, printed photo, screen, vide
 people, beside the oval, too far, wearing a mask, wearing sunglasses) and how they respond (follow / ignore / wrong action / manual with keys **B S ← → ↑ ↓**). Tick
 **Diagnostic mode** to see the audit trail and metrics. Both demos have a **Language** picker for the
 translated prompts. The demo reads `config/liveness.properties`.
+
+## Tools
+
+```bash
+# ISO/IEC 30107-3 PAD evaluation: dataset/bona_fide/..., dataset/attack/<species>/... (images, videos)
+./build.sh tool evaluate path/to/dataset --out pad-evaluation --passive-threshold 70
+
+# Device interoperability + engine performance (writes interop-report.md)
+./build.sh tool interop --device webcam:0 --disconnect manual   # asks before turning the camera on; --yes for CI
+./build.sh tool interop --device sbi:127.0.0.1:4501
+
+# Signed model packages (release side: keygen, sign; client side: install, status, rollback)
+./build.sh tool models keygen release-private.pem release-public.pem
+./build.sh tool models sign models-v2/ release-private.pem --version 1.3.0 --sequence 2
+./build.sh tool models install models-v2/ /var/lib/mosip/liveness-models release-public.pem
+```
+
+On Windows: `.\build.ps1 -Tool "interop --device webcam:0"`. The live demo runs only on a verified package
+when started with `-Dmosip.liveness.modelRepo=<repo> -Dmosip.liveness.trustedKey=<public.pem>`.
 
 ## Layout
 
@@ -76,7 +99,11 @@ liveness-core/                       pure Java 11 library, zero dependencies (De
   audit/       AuditEvent(Type), AuditSink, LivenessMetrics
   mock/        MockFaceDevice, SimulatedSubject, SimulatedLivenessEngine
   i18n/        LivenessMessages + messages_<lang>.properties           (localised prompts, RTL)
+  model/       ModelPackageVerifier, ModelRepository, ModelSigning      (signed model packages)
+  evaluation/  PadMetrics, PadEvaluation                                (ISO/IEC 30107-3 metrics + report)
+  conformance/ DeviceConformanceSuite, EngineBenchmark                  (interop + performance tests)
 liveness-onnx-engine/                YuNet + MiniFASNet engine, ReplayAttackDetector, OcclusionAnalyzer
+liveness-tools/                      CLI: evaluate, interop, models
 liveness-desktop-demo/               reference face capture screen (Swing)
 config/liveness.properties           sample per-workflow policy
 docs/DESIGN.md                       technical design: architecture, flows, config, errors, security, ISO 30107
@@ -90,8 +117,13 @@ FaceLivenessService service = new FaceLivenessService(
 
 LivenessMessages text = LivenessMessages.forLanguage("fra");   // client language, ISO 639-3
 
+// Show text.ui(UI_CONSENT_TEXT) with Allow / Don't allow first; the camera is opened only if allowed.
+CameraConsent consent = allowed
+        ? CameraConsent.granted(LivenessMessages.CONSENT_NOTICE_VERSION, text.language(), System.currentTimeMillis())
+        : CameraConsent.declined(LivenessMessages.CONSENT_NOTICE_VERSION, text.language(), System.currentTimeMillis());
+
 // Subject key = operator ID: failed attempts are rate limited per operator across sessions.
-LivenessHandle h = service.start(LivenessWorkflow.OPERATOR_AUTHENTICATION, operatorId, device, new LivenessListener() {
+LivenessHandle h = service.start(LivenessWorkflow.OPERATOR_AUTHENTICATION, operatorId, consent, device, new LivenessListener() {
     public void onUpdate(LivenessUpdate u)   { /* show text.text(u.getMessage()), guidance, step, countdown, retry */ }
     public void onComplete(LivenessResult r) {
         if (r.isAccepted()) match(r.getCapturedFrame());          // face match on the verified frame

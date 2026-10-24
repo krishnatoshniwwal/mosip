@@ -16,6 +16,7 @@
         <module>liveness-onnx-engine</module>
         <module>liveness-desktop-demo</module>
         <module>liveness-live-demo</module>
+        <module>liveness-tools</module>
     </modules>
 
     <properties>

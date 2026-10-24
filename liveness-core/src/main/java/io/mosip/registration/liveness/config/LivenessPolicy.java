@@ -41,6 +41,8 @@ public final class LivenessPolicy {
     private final int rateLimitMaxFailures;
     private final long rateLimitWindowMs;
     private final long rateLimitLockoutMs;
+    private final boolean consentRequired;
+    private final long consentMaxAgeMs;
 
     private LivenessPolicy(Builder b) {
         enabled = b.enabled;
@@ -71,6 +73,8 @@ public final class LivenessPolicy {
         rateLimitMaxFailures = b.rateLimitMaxFailures;
         rateLimitWindowMs = b.rateLimitWindowMs;
         rateLimitLockoutMs = b.rateLimitLockoutMs;
+        consentRequired = b.consentRequired;
+        consentMaxAgeMs = b.consentMaxAgeMs;
     }
 
     public static Builder builder() {
@@ -105,7 +109,9 @@ public final class LivenessPolicy {
                 .rateLimitEnabled(rateLimitEnabled)
                 .rateLimitMaxFailures(rateLimitMaxFailures)
                 .rateLimitWindowMs(rateLimitWindowMs)
-                .rateLimitLockoutMs(rateLimitLockoutMs);
+                .rateLimitLockoutMs(rateLimitLockoutMs)
+                .consentRequired(consentRequired)
+                .consentMaxAgeMs(consentMaxAgeMs);
     }
 
     /** Master switch. When false, faces are captured without liveness or PAD checks. */
@@ -155,6 +161,10 @@ public final class LivenessPolicy {
     public int getRateLimitMaxFailures() { return rateLimitMaxFailures; }
     public long getRateLimitWindowMs() { return rateLimitWindowMs; }
     public long getRateLimitLockoutMs() { return rateLimitLockoutMs; }
+    /** Whether the person must explicitly allow camera use before the device is opened. */
+    public boolean isConsentRequired() { return consentRequired; }
+    /** How old a consent may be when the session starts; an older one must be asked for again. */
+    public long getConsentMaxAgeMs() { return consentMaxAgeMs; }
 
     /** Compact, non-sensitive description for audit records. */
     public String summary() {
@@ -166,6 +176,7 @@ public final class LivenessPolicy {
                 + ",active=" + (activeAlways ? "always" : activeEnabled ? "on-low-score" : "off")
                 + ",challenges=" + minChallenges + ".." + maxChallenges + challengeTypes
                 + ",maxRetries=" + maxRetries
+                + ",consent=" + (consentRequired ? "required" : "off")
                 + ",area=" + captureArea.isEnabled()
                 + ",occlusion=" + (occlusionEnabled ? (occlusionAllowCapture ? "allow-capture" : "block-capture") : "off")
                 + ",rateLimit=" + (rateLimitEnabled
@@ -208,6 +219,8 @@ public final class LivenessPolicy {
         private int rateLimitMaxFailures = 5;
         private long rateLimitWindowMs = 600_000;
         private long rateLimitLockoutMs = 900_000;
+        private boolean consentRequired = true;
+        private long consentMaxAgeMs = 300_000;
 
         private Builder() {
         }
@@ -257,6 +270,8 @@ public final class LivenessPolicy {
         public Builder rateLimitMaxFailures(int v) { rateLimitMaxFailures = v; return this; }
         public Builder rateLimitWindowMs(long v) { rateLimitWindowMs = v; return this; }
         public Builder rateLimitLockoutMs(long v) { rateLimitLockoutMs = v; return this; }
+        public Builder consentRequired(boolean v) { consentRequired = v; return this; }
+        public Builder consentMaxAgeMs(long v) { consentMaxAgeMs = v; return this; }
 
         /** @throws IllegalArgumentException if the combination of values is invalid */
         public LivenessPolicy build() {
@@ -274,6 +289,7 @@ public final class LivenessPolicy {
             require(retryExhaustedAction != null, "retry.exhaustedAction is required");
             require(!activeAlways || activeEnabled, "active.always requires active.enabled=true");
             require(occlusionGraceMs >= 0, "occlusion.graceMs must not be negative");
+            require(consentMaxAgeMs > 0, "consent.maxAgeMs must be positive");
             if (rateLimitEnabled) {
                 require(rateLimitMaxFailures >= 1, "rateLimit.maxFailures must be at least 1");
                 require(rateLimitWindowMs > 0, "rateLimit.windowMs must be positive");

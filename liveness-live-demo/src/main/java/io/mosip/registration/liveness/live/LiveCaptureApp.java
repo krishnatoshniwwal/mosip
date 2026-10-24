@@ -10,9 +10,14 @@ import io.mosip.registration.liveness.device.FaceCaptureDevice;
 import io.mosip.registration.liveness.device.FaceFrame;
 import io.mosip.registration.liveness.engine.LivenessEngineException;
 import io.mosip.registration.liveness.i18n.LivenessMessages;
+import io.mosip.registration.liveness.model.ModelIntegrityException;
+import io.mosip.registration.liveness.model.ModelPackageVerifier;
+import io.mosip.registration.liveness.model.ModelRepository;
+import io.mosip.registration.liveness.model.ModelSigning;
 import io.mosip.registration.liveness.onnx.OnnxLivenessEngine;
 import io.mosip.registration.liveness.service.FaceLivenessService;
 import io.mosip.registration.liveness.service.LivenessHandle;
+import io.mosip.registration.liveness.session.CameraConsent;
 import io.mosip.registration.liveness.session.LivenessListener;
 import io.mosip.registration.liveness.session.LivenessResult;
 import io.mosip.registration.liveness.session.LivenessState;
@@ -27,6 +32,7 @@ import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
+import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JList;
@@ -46,13 +52,16 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.GeneralSecurityException;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
+import java.util.Collections;
 
 /**
  * Live Face Liveness & Presentation Attack Detection Desktop Application.
@@ -100,11 +109,30 @@ public final class LiveCaptureApp {
         this.configSource = configSource;
 
         OpenCvLoader.ensureLoaded();
-        this.engine = new OnnxLivenessEngine(OnnxLivenessEngine.defaultModelDir());
+        this.engine = createEngine();
         this.device = new OpenCvCameraDevice(cameraIndex, 15);
 
         AuditSink audit = event -> SwingUtilities.invokeLater(() -> appendAudit(event));
         this.service = new FaceLivenessService(config, engine, audit);
+    }
+
+    /**
+     * With {@code -Dmosip.liveness.modelRepo=<dir> -Dmosip.liveness.trustedKey=<public.pem>} the engine runs
+     * only on a verified, signed model package; otherwise it loads the development {@code models/} folder.
+     */
+    private static OnnxLivenessEngine createEngine() throws LivenessEngineException {
+        String repo = System.getProperty("mosip.liveness.modelRepo");
+        if (repo == null) {
+            return new OnnxLivenessEngine(OnnxLivenessEngine.defaultModelDir());
+        }
+        try {
+            ModelPackageVerifier verifier = new ModelPackageVerifier(Collections.singletonList(
+                    ModelSigning.readPublicKey(Paths.get(System.getProperty("mosip.liveness.trustedKey", "trusted-model-key.pem")))),
+                    OnnxLivenessEngine.ENGINE_VERSION);
+            return new OnnxLivenessEngine(new ModelRepository(Paths.get(repo), verifier).activate());
+        } catch (ModelIntegrityException | IOException | GeneralSecurityException e) {
+            throw new LivenessEngineException("Liveness model package could not be verified: " + e.getMessage(), e);
+        }
     }
 
     public static void main(String[] args) {
@@ -275,8 +303,10 @@ public final class LiveCaptureApp {
         cancel.setEnabled(true);
         tips.setText(" ");
         preview.setCaptureArea(config.policyFor(selected).getCaptureArea());
+        CameraConsent consent = askCameraConsent();
+        appendLine("Camera permission: " + (consent.isGranted() ? "allowed" : "not allowed - camera stays off"));
 
-        handle = service.start(selected, device, new LivenessListener() {
+        handle = service.start(selected, consent, device, new LivenessListener() {
             @Override
             public void onUpdate(LivenessUpdate update) {
                 SwingUtilities.invokeLater(() -> render(update));
@@ -292,6 +322,27 @@ public final class LiveCaptureApp {
                 preview.showFrame(f);
             }
         });
+    }
+
+    /**
+     * Asks before the camera is turned on, on every Start. Closing the dialog counts as "Don't allow", and
+     * "Don't allow" is the default button, so consent is always an explicit choice.
+     */
+    private CameraConsent askCameraConsent() {
+        Object[] options = {messages.ui(LivenessMessages.UI_ALLOW), messages.ui(LivenessMessages.UI_DENY)};
+        JOptionPane pane = new JOptionPane("<html><body style='width:360px'>"
+                + messages.ui(LivenessMessages.UI_CONSENT_TEXT) + "</body></html>",
+                JOptionPane.QUESTION_MESSAGE, JOptionPane.DEFAULT_OPTION, null, options, options[1]);
+        pane.setComponentOrientation(messages.isRightToLeft()
+                ? ComponentOrientation.RIGHT_TO_LEFT : ComponentOrientation.LEFT_TO_RIGHT);
+        JDialog dialog = pane.createDialog(frame, messages.ui(LivenessMessages.UI_CONSENT_TITLE));
+        dialog.setVisible(true);
+        dialog.dispose();
+        boolean granted = options[0].equals(pane.getValue());
+        long now = System.currentTimeMillis();
+        return granted
+                ? CameraConsent.granted(LivenessMessages.CONSENT_NOTICE_VERSION, messages.language(), now)
+                : CameraConsent.declined(LivenessMessages.CONSENT_NOTICE_VERSION, messages.language(), now);
     }
 
     private void render(LivenessUpdate u) {

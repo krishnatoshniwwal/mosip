@@ -12,6 +12,7 @@ import io.mosip.registration.liveness.device.DeviceStatus;
 import io.mosip.registration.liveness.mock.MockFaceDevice;
 import io.mosip.registration.liveness.mock.SimulatedLivenessEngine;
 import io.mosip.registration.liveness.mock.SimulatedSubject;
+import io.mosip.registration.liveness.session.CameraConsent;
 import io.mosip.registration.liveness.session.FailureReason;
 import io.mosip.registration.liveness.session.LivenessListener;
 import io.mosip.registration.liveness.session.LivenessOutcome;
@@ -50,7 +51,7 @@ class FaceLivenessServiceTest {
         subject.setReactionDelayMs(150);
         Recorder ui = new Recorder();
 
-        LivenessHandle handle = service.start(LivenessWorkflow.OPERATOR_AUTHENTICATION, device, subject.respondingTo(ui));
+        LivenessHandle handle = service.start(LivenessWorkflow.OPERATOR_AUTHENTICATION, granted(), device, subject.respondingTo(ui));
         LivenessResult result = awaitWithoutFailedAttempt(handle, ui);
 
         assertEquals(LivenessOutcome.PASSED, result.getOutcome());
@@ -64,7 +65,7 @@ class FaceLivenessServiceTest {
     @Test
     void disconnectMidSessionCanBeRetriedWithoutUsingAnAttempt() throws Exception {
         Recorder ui = new Recorder();
-        LivenessHandle handle = service.start(LivenessWorkflow.RESIDENT_REGISTRATION, device, subject.respondingTo(ui));
+        LivenessHandle handle = service.start(LivenessWorkflow.RESIDENT_REGISTRATION, granted(), device, subject.respondingTo(ui));
         assertTrue(ui.checking.await(5, TimeUnit.SECONDS));
 
         device.simulateDisconnect();
@@ -82,7 +83,7 @@ class FaceLivenessServiceTest {
     void unavailableDeviceIsReportedAndRecoversOnRetry() throws Exception {
         device.setAvailable(false);
         Recorder ui = new Recorder();
-        LivenessHandle handle = service.start(LivenessWorkflow.SUPERVISOR_AUTHENTICATION, device, subject.respondingTo(ui));
+        LivenessHandle handle = service.start(LivenessWorkflow.SUPERVISOR_AUTHENTICATION, granted(), device, subject.respondingTo(ui));
         assertTrue(ui.failed.await(5, TimeUnit.SECONDS));
 
         device.setAvailable(true);
@@ -95,7 +96,7 @@ class FaceLivenessServiceTest {
     void persistentEngineErrorsFailTheAttempt() throws Exception {
         engine.failNext(1000);
         Recorder ui = new Recorder();
-        LivenessHandle handle = service.start(LivenessWorkflow.RESIDENT_REGISTRATION, device, subject.respondingTo(ui));
+        LivenessHandle handle = service.start(LivenessWorkflow.RESIDENT_REGISTRATION, granted(), device, subject.respondingTo(ui));
 
         assertTrue(ui.failed.await(5, TimeUnit.SECONDS));
         assertEquals(UserMessage.FAIL_GENERIC, ui.lastFailure.getMessage());
@@ -107,7 +108,7 @@ class FaceLivenessServiceTest {
     void corruptFramesAreSkippedUntilTheyPersist() throws Exception {
         device.injectCorruptFrames(3);
         Recorder ui = new Recorder();
-        LivenessResult result = service.start(LivenessWorkflow.RESIDENT_REGISTRATION, device, subject.respondingTo(ui))
+        LivenessResult result = service.start(LivenessWorkflow.RESIDENT_REGISTRATION, granted(), device, subject.respondingTo(ui))
                 .result().get(20, TimeUnit.SECONDS);
         assertEquals(LivenessOutcome.PASSED, result.getOutcome());
     }
@@ -153,5 +154,9 @@ class FaceLivenessServiceTest {
         public void onPreviewFrame(io.mosip.registration.liveness.device.FaceFrame frame) {
             previewFrames++;
         }
+    }
+
+    private static CameraConsent granted() {
+        return CameraConsent.granted("test-notice", "en", System.currentTimeMillis());
     }
 }

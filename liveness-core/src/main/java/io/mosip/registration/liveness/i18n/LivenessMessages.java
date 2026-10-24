@@ -56,6 +56,13 @@ public final class LivenessMessages {
     public static final String UI_PRESS_RETRY = "liveness.ui.pressRetry";
     /** Args: time the lockout ends, already formatted. */
     public static final String UI_LOCKED_UNTIL = "liveness.ui.lockedUntil";
+    public static final String UI_CONSENT_TITLE = "liveness.ui.consentTitle";
+    /** The camera notice. Its wording is versioned by {@link #CONSENT_NOTICE_VERSION}. */
+    public static final String UI_CONSENT_TEXT = "liveness.ui.consentText";
+    public static final String UI_ALLOW = "liveness.ui.allow";
+    public static final String UI_DENY = "liveness.ui.deny";
+    /** Bump whenever the consent notice wording changes in any language; recorded with every consent. */
+    public static final String CONSENT_NOTICE_VERSION = "camera-notice-v1";
 
     private static final Map<String, String> UI_ENGLISH = new LinkedHashMap<>();
     private static final Map<String, String> MOSIP_CODES = new HashMap<>();
@@ -71,6 +78,12 @@ public final class LivenessMessages {
         UI_ENGLISH.put(UI_TIME_LEFT, "Time left: {0} s");
         UI_ENGLISH.put(UI_PRESS_RETRY, "Press \"Retry\" to try again.");
         UI_ENGLISH.put(UI_LOCKED_UNTIL, "Locked until {0}");
+        UI_ENGLISH.put(UI_CONSENT_TITLE, "Camera permission");
+        UI_ENGLISH.put(UI_CONSENT_TEXT, "To capture your face and confirm that you are present in person, this application "
+                + "needs to turn on the camera. Images are processed on this device and are not sent anywhere for the "
+                + "liveness check. Do you allow the camera to be used?");
+        UI_ENGLISH.put(UI_ALLOW, "Allow");
+        UI_ENGLISH.put(UI_DENY, "Don't allow");
 
         // MOSIP configures languages with ISO 639-3 codes (mosip.mandatory-languages=eng,ara,fra ...).
         MOSIP_CODES.put("eng", "en");
