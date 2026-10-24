@@ -8,6 +8,8 @@ authentication and supervisor authentication, using a **hybrid passive → activ
    ("Please blink", "Please turn your head to the left", …). Their number and order are random.
 3. **PAD** and continuity checks run on every frame throughout. A face is accepted, or an
    authentication completes, only when every check passes.
+4. Only a face **inside the on-screen oval** counts. A face elsewhere in the camera's view is ignored, and
+   the person is told to move into the oval, closer or back.
 
 Everything runs locally, so it behaves the same online and offline. Devices and liveness technologies plug
 in behind interfaces, so no vendor is hard-wired.
@@ -17,6 +19,11 @@ in behind interfaces, so no vendor is hard-wired.
 | Done | Not yet |
 |---|---|
 | Vendor-neutral device and engine interfaces | Blink/smile from a dense landmark model |
+| Enforced capture oval (position + distance), drawn from the same config | Calibrating replay/occlusion thresholds on real attack data |
+| Replay attack cues: moiré, lighting uniformity, bezel/frame edges | Native-speaker review of translations |
+| Occlusion handling (mask, scarf, sunglasses) with region-safe challenge fallback | |
+| Cross-session rate limiting with lockout persisted across restarts | |
+| Localised prompts: English, French, Arabic (RTL), Hindi, Kannada, Tamil, Filipino, Amharic, Sinhala | |
 | Live webcam engine: YuNet face detection + landmark head pose (turn left/right challenges) | Threshold calibration on recorded live/spoof sessions |
 | MiniFASNet anti-spoofing (2-model ONNX ensemble, matches upstream output exactly) | |
 | Liveness state machine: passive, PAD, random challenges, retries, failure actions | Wiring into the JavaFX Registration Client screens |
@@ -25,7 +32,7 @@ in behind interfaces, so no vendor is hard-wired.
 | Mock L0/L1 device + simulated subject and engine (live, photo, screen, replay, …) | |
 | Audit events (no biometric data) and anonymous metrics | |
 | Reference capture UI (Swing) with diagnostic mode | |
-| 59 automated tests | |
+| 106 automated tests | |
 
 The live engine (`liveness-onnx-engine`) detects faces with OpenCV's YuNet model and measures head turns
 from its five landmarks, so it only issues turn-left/turn-right challenges for now. Anti-spoofing uses the
@@ -40,7 +47,7 @@ Needs JDK 11+. No Maven required: the scripts download JUnit, OpenCV, ONNX Runti
 `-Dmosip.liveness.models=<dir>` at a folder containing `face_detection_yunet_2023mar.onnx`.
 
 ```powershell
-.\build.ps1          # compile + 59 tests
+.\build.ps1          # compile + 106 tests
 .\build.ps1 -Run     # launch LIVE webcam capture & real liveness
 .\build.ps1 -Run -Sim # launch simulated desktop demo (mock device)
 ```
@@ -51,8 +58,9 @@ mvn verify           # with Maven
 
 In the demo, pick a workflow and press **Start**. Use the *Device simulator* bar to choose who or what is in
 front of the camera (live person, low passive score, printed photo, screen, video replay, nobody, two
-people) and how they respond (follow / ignore / wrong action / manual with keys **B S ← → ↑ ↓**). Tick
-**Diagnostic mode** to see the audit trail and metrics. The demo reads `config/liveness.properties`.
+people, beside the oval, too far, wearing a mask, wearing sunglasses) and how they respond (follow / ignore / wrong action / manual with keys **B S ← → ↑ ↓**). Tick
+**Diagnostic mode** to see the audit trail and metrics. Both demos have a **Language** picker for the
+translated prompts. The demo reads `config/liveness.properties`.
 
 ## Layout
 
@@ -67,6 +75,8 @@ liveness-core/                       pure Java 11 library, zero dependencies (De
   service/     FaceLivenessService, LivenessHandle (threading, backpressure, device lifecycle)
   audit/       AuditEvent(Type), AuditSink, LivenessMetrics
   mock/        MockFaceDevice, SimulatedSubject, SimulatedLivenessEngine
+  i18n/        LivenessMessages + messages_<lang>.properties           (localised prompts, RTL)
+liveness-onnx-engine/                YuNet + MiniFASNet engine, ReplayAttackDetector, OcclusionAnalyzer
 liveness-desktop-demo/               reference face capture screen (Swing)
 config/liveness.properties           sample per-workflow policy
 docs/DESIGN.md                       technical design: architecture, flows, config, errors, security, ISO 30107
@@ -78,8 +88,11 @@ docs/DESIGN.md                       technical design: architecture, flows, conf
 FaceLivenessService service = new FaceLivenessService(
         LivenessConfig.load(Paths.get("liveness.properties")), engine, auditSink);
 
-LivenessHandle h = service.start(LivenessWorkflow.OPERATOR_AUTHENTICATION, device, new LivenessListener() {
-    public void onUpdate(LivenessUpdate u)   { /* show u.getMessage(), guidance, step, countdown, retry button */ }
+LivenessMessages text = LivenessMessages.forLanguage("fra");   // client language, ISO 639-3
+
+// Subject key = operator ID: failed attempts are rate limited per operator across sessions.
+LivenessHandle h = service.start(LivenessWorkflow.OPERATOR_AUTHENTICATION, operatorId, device, new LivenessListener() {
+    public void onUpdate(LivenessUpdate u)   { /* show text.text(u.getMessage()), guidance, step, countdown, retry */ }
     public void onComplete(LivenessResult r) {
         if (r.isAccepted()) match(r.getCapturedFrame());          // face match on the verified frame
         else handle(r.getRequiredAction());                     // BLOCK / supervisor override / alternate auth

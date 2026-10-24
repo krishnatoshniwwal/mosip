@@ -26,11 +26,13 @@ public final class LivenessResult {
     private final List<FailureReason> attemptFailures;
     private final String engine;
     private final long durationMs;
+    private final long lockedUntil;
 
     LivenessResult(String sessionId, LivenessWorkflow workflow, LivenessOutcome outcome, FailureReason failureReason,
                    FailureAction requiredAction, FaceFrame capturedFrame, FaceObservation capturedFace,
                    float passiveScore, boolean activeVerificationPerformed, List<ChallengeType> challengesCompleted,
-                   int attempts, List<FailureReason> attemptFailures, String engine, long durationMs) {
+                   int attempts, List<FailureReason> attemptFailures, String engine, long durationMs,
+                   long lockedUntil) {
         this.sessionId = sessionId;
         this.workflow = workflow;
         this.outcome = outcome;
@@ -45,6 +47,7 @@ public final class LivenessResult {
         this.attemptFailures = Collections.unmodifiableList(new ArrayList<>(attemptFailures));
         this.engine = engine;
         this.durationMs = durationMs;
+        this.lockedUntil = lockedUntil;
     }
 
     /** True when the workflow may use the captured face (liveness verified, or liveness disabled by policy). */
@@ -71,4 +74,6 @@ public final class LivenessResult {
     public List<FailureReason> getAttemptFailures() { return attemptFailures; }
     public String getEngine() { return engine; }
     public long getDurationMs() { return durationMs; }
+    /** When the failure reason is {@link FailureReason#LOCKED_OUT}: epoch ms at which the lockout ends; 0 otherwise. */
+    public long getLockedUntil() { return lockedUntil; }
 }

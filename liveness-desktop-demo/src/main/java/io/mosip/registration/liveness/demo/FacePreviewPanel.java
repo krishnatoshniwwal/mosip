@@ -1,8 +1,11 @@
 package io.mosip.registration.liveness.demo;
 
 import io.mosip.registration.liveness.challenge.ChallengeType;
+import io.mosip.registration.liveness.config.CaptureArea;
+import io.mosip.registration.liveness.config.LivenessPolicy;
 import io.mosip.registration.liveness.device.FaceFrame;
 import io.mosip.registration.liveness.engine.FaceObservation;
+import io.mosip.registration.liveness.engine.FaceRegion;
 import io.mosip.registration.liveness.mock.SimulatedFrameTruth;
 import io.mosip.registration.liveness.mock.SimulatedSubject.Presentation;
 import io.mosip.registration.liveness.session.LivenessState;
@@ -25,6 +28,8 @@ import java.awt.geom.RoundRectangle2D;
  * Live preview with the capture-area guide. Real devices deliver camera pixels; the mock device
  * delivers the simulated subject's state, which is drawn as a schematic face. The preview is
  * mirrored like a selfie camera, so "turn left" moves the face towards the left of the screen.
+ * The panel stands for the whole frame, and the guide is the policy's {@link CaptureArea}, so a face
+ * drawn outside the oval is exactly one the session ignores.
  */
 final class FacePreviewPanel extends JPanel {
 
@@ -41,6 +46,7 @@ final class FacePreviewPanel extends JPanel {
     private volatile SimulatedFrameTruth truth;
     private volatile LivenessState state = LivenessState.NOT_STARTED;
     private volatile ChallengeType challenge;
+    private volatile CaptureArea area = LivenessPolicy.builder().build().getCaptureArea();
 
     FacePreviewPanel() {
         setPreferredSize(new Dimension(480, 360));
@@ -51,6 +57,11 @@ final class FacePreviewPanel extends JPanel {
     void showFrame(FaceFrame frame) {
         Object t = frame.getMetadata().get(SimulatedFrameTruth.METADATA_KEY);
         truth = t instanceof SimulatedFrameTruth ? (SimulatedFrameTruth) t : null;
+        repaint();
+    }
+
+    void setCaptureArea(CaptureArea captureArea) {
+        area = captureArea;
         repaint();
     }
 
@@ -107,16 +118,19 @@ final class FacePreviewPanel extends JPanel {
             default:
                 color = NEUTRAL;
         }
-        double gw = w * 0.44;
-        double gh = h * 0.74;
+        CaptureArea a = area;
+        double gw = 2 * a.getRadiusX() * w;
+        double gh = 2 * a.getRadiusY() * h;
+        double ox = (1 - a.getCenterX()) * w;   // mirrored
+        double oy = a.getCenterY() * h;
         g.setColor(color);
         g.setStroke(new BasicStroke(3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 1f, new float[] {10f, 8f}, 0f));
-        g.draw(new Ellipse2D.Double(w / 2.0 - gw / 2, h * 0.48 - gh / 2, gw, gh));
+        g.draw(new Ellipse2D.Double(ox - gw / 2, oy - gh / 2, gw, gh));
 
         ChallengeType c = challenge;
         if (state == LivenessState.ACTIVE_CHALLENGE && c != null) {
-            int cx = w / 2;
-            int cy = (int) (h * 0.48);
+            int cx = (int) ox;
+            int cy = (int) oy;
             int reach = (int) (gw / 2 + 34);
             switch (c) {
                 case TURN_LEFT:
@@ -182,7 +196,7 @@ final class FacePreviewPanel extends JPanel {
     private static void drawFace(Graphics2D g, FaceObservation f, int w, int h, boolean flat) {
         double fw = f.getWidth() * w * (1 - Math.min(Math.abs(f.getYaw()), 45) / 45.0 * 0.15);
         double fh = f.getHeight() * h;
-        double cx = f.getCenterX() * w;
+        double cx = (1 - f.getCenterX()) * w;   // mirrored
         double cy = f.getCenterY() * h;
         double dx = -f.getYaw() / 45.0 * fw * 0.35;
         double dy = -f.getPitch() / 45.0 * fh * 0.35;
@@ -231,6 +245,28 @@ final class FacePreviewPanel extends JPanel {
             g.setColor(FEATURE);
         }
         g.draw(mouth);
+
+        if (f.getOccludedRegions().contains(FaceRegion.LOWER_FACE)) {
+            g.setColor(new Color(0x9CC9E6));
+            g.fill(new RoundRectangle2D.Double(cx - fw * 0.42 + dx, cy + fh * 0.04 + dy, fw * 0.84, fh * 0.38,
+                    fw * 0.3, fw * 0.3));
+            g.setColor(new Color(0x7BAFCF));
+            g.setStroke(new BasicStroke(1.5f));
+            for (int i = 1; i <= 3; i++) {
+                double y = cy + fh * (0.04 + 0.095 * i) + dy;
+                g.drawLine((int) (cx - fw * 0.36 + dx), (int) y, (int) (cx + fw * 0.36 + dx), (int) y);
+            }
+        }
+        if (f.getOccludedRegions().contains(FaceRegion.EYES)) {
+            g.setColor(new Color(0x111417));
+            for (int side = -1; side <= 1; side += 2) {
+                double ex = cx + side * fw * 0.2 + dx;
+                g.fill(new RoundRectangle2D.Double(ex - fw * 0.14, eyeY - fh * 0.075, fw * 0.28, fh * 0.15,
+                        fw * 0.08, fw * 0.08));
+            }
+            g.setStroke(new BasicStroke(3f));
+            g.drawLine((int) (cx - fw * 0.06 + dx), (int) eyeY, (int) (cx + fw * 0.06 + dx), (int) eyeY);
+        }
     }
 
     private static void centered(Graphics2D g, String text, int x, int y) {

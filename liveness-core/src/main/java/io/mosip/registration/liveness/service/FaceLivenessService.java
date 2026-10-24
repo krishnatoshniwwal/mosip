@@ -7,6 +7,7 @@ import io.mosip.registration.liveness.challenge.ChallengeSelector;
 import io.mosip.registration.liveness.config.LivenessConfig;
 import io.mosip.registration.liveness.device.FaceCaptureDevice;
 import io.mosip.registration.liveness.engine.LivenessEngine;
+import io.mosip.registration.liveness.session.AttemptRateLimiter;
 import io.mosip.registration.liveness.session.LivenessListener;
 import io.mosip.registration.liveness.session.LivenessResult;
 import io.mosip.registration.liveness.session.LivenessSession;
@@ -27,6 +28,9 @@ import java.util.function.LongSupplier;
  * // listener.onUpdate drives the UI; listener.onComplete delivers the result
  * h.retry();  // when the user taps Retry after a failed attempt
  * </pre>
+ *
+ * <p>Failed attempts are rate limited across sessions per workflow and subject key (see
+ * {@link #start(LivenessWorkflow, String, FaceCaptureDevice, LivenessListener)}).
  */
 public final class FaceLivenessService {
 
@@ -36,13 +40,22 @@ public final class FaceLivenessService {
     private final LivenessMetrics metrics;
     private final ChallengeSelector selector;
     private final LongSupplier clock;
+    private final AttemptRateLimiter rateLimiter;
 
+    /** Rate-limit state is kept in memory; use the other constructor to persist it across restarts. */
     public FaceLivenessService(LivenessConfig config, LivenessEngine engine, AuditSink audit) {
-        this(config, engine, audit, new LivenessMetrics(), new ChallengeSelector(), System::currentTimeMillis);
+        this(config, engine, audit, new LivenessMetrics(), new ChallengeSelector(), System::currentTimeMillis,
+                new AttemptRateLimiter());
     }
 
     public FaceLivenessService(LivenessConfig config, LivenessEngine engine, AuditSink audit, LivenessMetrics metrics,
                                ChallengeSelector selector, LongSupplier clock) {
+        this(config, engine, audit, metrics, selector, clock, new AttemptRateLimiter());
+    }
+
+    public FaceLivenessService(LivenessConfig config, LivenessEngine engine, AuditSink audit, LivenessMetrics metrics,
+                               ChallengeSelector selector, LongSupplier clock, AttemptRateLimiter rateLimiter) {
+        this.rateLimiter = rateLimiter;
         this.config = config;
         this.engine = engine;
         this.audit = audit;
@@ -56,6 +69,16 @@ public final class FaceLivenessService {
      * closed when the session ends.
      */
     public LivenessHandle start(LivenessWorkflow workflow, FaceCaptureDevice device, LivenessListener listener) {
+        return start(workflow, null, device, listener);
+    }
+
+    /**
+     * @param subjectKey who failed attempts are counted against for rate limiting: the operator or
+     *                   supervisor user ID for authentication, the registration ID for a resident; null
+     *                   counts against the whole station for this workflow
+     */
+    public LivenessHandle start(LivenessWorkflow workflow, String subjectKey, FaceCaptureDevice device,
+                                LivenessListener listener) {
         AtomicReference<LivenessResult> finished = new AtomicReference<>();
         LivenessListener recording = new LivenessListener() {
             @Override
@@ -75,10 +98,15 @@ public final class FaceLivenessService {
             }
         };
         LivenessSession session = new LivenessSession(UUID.randomUUID().toString(), workflow,
-                config.policyFor(workflow), engine.info(), selector, audit, metrics, recording);
+                config.policyFor(workflow), engine.info(), selector, audit, metrics, recording,
+                rateLimiter, workflow.configKey() + ":" + (subjectKey == null ? "*station*" : subjectKey));
         LivenessHandle handle = new LivenessHandle(session, device, engine, metrics, clock, recording, finished);
         handle.begin();
         return handle;
+    }
+
+    public AttemptRateLimiter rateLimiter() {
+        return rateLimiter;
     }
 
     public LivenessMetrics metrics() {

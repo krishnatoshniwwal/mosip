@@ -61,6 +61,7 @@ rm -rf "$OUT"; mkdir -p "$OUT"
 
 echo "== Compiling liveness-core"
 compile "$ROOT/liveness-core/src/main/java" "$OUT/core" ""
+cp -R "$ROOT/liveness-core/src/main/resources/." "$OUT/core/"   # message bundles
 
 echo "== Compiling liveness-camera (OpenCV webcam)"
 compile "$ROOT/liveness-camera/src/main/java" "$OUT/camera" "$OUT/core$SEP$OPENCV_JAR"

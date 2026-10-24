@@ -1,5 +1,9 @@
 package io.mosip.registration.liveness.engine;
 
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.Set;
+
 /**
  * Per-face measurements reported by a {@link LivenessEngine} for one frame.
  *
@@ -7,7 +11,8 @@ package io.mosip.registration.liveness.engine;
  * positive yaw means the subject turned their head to <em>their</em> left, positive pitch means the
  * subject looks up. Engines must undo any preview mirroring before reporting, so that "turn your
  * head to the left" is unambiguous. Eye openness and smile are 0..1; {@link Float#NaN} means the
- * engine cannot measure the value.
+ * engine cannot measure the value. Occluded regions are those the engine saw covered; engines that
+ * cannot tell report none.
  */
 public final class FaceObservation {
     private final float centerX;
@@ -21,6 +26,7 @@ public final class FaceObservation {
     private final float yaw;
     private final float pitch;
     private final float roll;
+    private final Set<FaceRegion> occluded;
 
     private FaceObservation(Builder b) {
         centerX = b.centerX;
@@ -34,6 +40,7 @@ public final class FaceObservation {
         yaw = b.yaw;
         pitch = b.pitch;
         roll = b.roll;
+        occluded = b.occluded.isEmpty() ? Collections.emptySet() : Collections.unmodifiableSet(EnumSet.copyOf(b.occluded));
     }
 
     public static Builder builder() {
@@ -68,6 +75,9 @@ public final class FaceObservation {
     public float getYaw() { return yaw; }
     public float getPitch() { return pitch; }
     public float getRoll() { return roll; }
+    /** Face regions seen covered in this frame (empty if none, or if the engine cannot tell). */
+    public Set<FaceRegion> getOccludedRegions() { return occluded; }
+    public boolean isOccluded() { return !occluded.isEmpty(); }
 
     public static final class Builder {
         private float centerX = 0.5f;
@@ -81,6 +91,7 @@ public final class FaceObservation {
         private float yaw;
         private float pitch;
         private float roll;
+        private final Set<FaceRegion> occluded = EnumSet.noneOf(FaceRegion.class);
 
         private Builder() {
         }
@@ -92,6 +103,7 @@ public final class FaceObservation {
         public Builder eyes(float both) { return eyes(both, both); }
         public Builder smile(float v) { smile = v; return this; }
         public Builder pose(float yawDeg, float pitchDeg, float rollDeg) { yaw = yawDeg; pitch = pitchDeg; roll = rollDeg; return this; }
+        public Builder occluded(Set<FaceRegion> regions) { occluded.clear(); occluded.addAll(regions); return this; }
 
         public FaceObservation build() {
             return new FaceObservation(this);

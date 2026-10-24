@@ -9,6 +9,7 @@ import io.mosip.registration.liveness.config.LivenessConfig;
 import io.mosip.registration.liveness.device.FaceCaptureDevice;
 import io.mosip.registration.liveness.device.FaceFrame;
 import io.mosip.registration.liveness.engine.LivenessEngineException;
+import io.mosip.registration.liveness.i18n.LivenessMessages;
 import io.mosip.registration.liveness.onnx.OnnxLivenessEngine;
 import io.mosip.registration.liveness.service.FaceLivenessService;
 import io.mosip.registration.liveness.service.LivenessHandle;
@@ -39,6 +40,7 @@ import javax.swing.WindowConstants;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.ComponentOrientation;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
@@ -47,6 +49,10 @@ import java.awt.event.WindowEvent;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.FormatStyle;
 
 /**
  * Live Face Liveness & Presentation Attack Detection Desktop Application.
@@ -74,6 +80,8 @@ public final class LiveCaptureApp {
     private final JButton retry = new JButton("Retry");
     private final JButton cancel = new JButton("Cancel");
     private final JCheckBox diagnosticMode = new JCheckBox("Diagnostics");
+    private final JComboBox<String> language = new JComboBox<>(LivenessMessages.LANGUAGES.toArray(new String[0]));
+    private LivenessMessages messages = LivenessMessages.english();
     private final JLabel message = new JLabel("Position face in oval and press Start");
     private final JLabel guidance = new JLabel(" ");
     private final JLabel step = new JLabel(" ");
@@ -83,6 +91,7 @@ public final class LiveCaptureApp {
     private final JProgressBar progress = new JProgressBar(0, 100);
     private final JTextArea auditLog = new JTextArea();
     private final JLabel metrics = new JLabel(" ");
+    private final JTextArea engineReadout = new JTextArea(4, 40);
     private final JPanel diagnostics = new JPanel(new BorderLayout(0, 6));
 
     /** @throws LivenessEngineException if the liveness models cannot be loaded */
@@ -136,6 +145,17 @@ public final class LiveCaptureApp {
         top.add(retry);
         top.add(cancel);
         top.add(Box.createHorizontalStrut(16));
+        top.add(new JLabel("Language:"));
+        language.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean selected,
+                                                          boolean focus) {
+                String name = LivenessMessages.forLanguage((String) value).displayName();
+                return super.getListCellRendererComponent(list, name, index, selected, focus);
+            }
+        });
+        language.addActionListener(e -> applyLanguage());
+        top.add(language);
         top.add(diagnosticMode);
         retry.setEnabled(false);
         cancel.setEnabled(false);
@@ -159,6 +179,11 @@ public final class LiveCaptureApp {
         diagnostics.add(auditScroll, BorderLayout.CENTER);
         metrics.setFont(metrics.getFont().deriveFont(11f));
         diagnostics.add(metrics, BorderLayout.SOUTH);
+        engineReadout.setEditable(false);
+        engineReadout.setLineWrap(true);
+        engineReadout.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        engineReadout.setBorder(BorderFactory.createTitledBorder("Engine readout (last frame)"));
+        diagnostics.add(engineReadout, BorderLayout.NORTH);
         diagnostics.setVisible(false);
 
         frame.setLayout(new BorderLayout());
@@ -166,6 +191,10 @@ public final class LiveCaptureApp {
         frame.add(center, BorderLayout.CENTER);
         frame.add(diagnostics, BorderLayout.EAST);
 
+        applyLanguage();
+        preview.setCaptureArea(config.policyFor((LivenessWorkflow) workflow.getSelectedItem()).getCaptureArea());
+        workflow.addActionListener(e -> preview.setCaptureArea(
+                config.policyFor((LivenessWorkflow) workflow.getSelectedItem()).getCaptureArea()));
         start.addActionListener(e -> startSession());
         retry.addActionListener(e -> {
             retry.setEnabled(false);
@@ -200,6 +229,19 @@ public final class LiveCaptureApp {
         frame.setVisible(true);
     }
 
+    private void applyLanguage() {
+        messages = LivenessMessages.forLanguage((String) language.getSelectedItem());
+        start.setText(messages.ui(LivenessMessages.UI_START));
+        retry.setText(messages.ui(LivenessMessages.UI_RETRY));
+        cancel.setText(messages.ui(LivenessMessages.UI_CANCEL));
+        ComponentOrientation orientation = messages.isRightToLeft()
+                ? ComponentOrientation.RIGHT_TO_LEFT : ComponentOrientation.LEFT_TO_RIGHT;
+        for (JLabel c : new JLabel[]{message, guidance, step, countdown, attempt, tips}) {
+            c.setComponentOrientation(orientation);
+            c.setHorizontalAlignment(JLabel.LEADING);
+        }
+    }
+
     private JComponent statusPanel() {
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
@@ -232,6 +274,7 @@ public final class LiveCaptureApp {
         workflow.setEnabled(false);
         cancel.setEnabled(true);
         tips.setText(" ");
+        preview.setCaptureArea(config.policyFor(selected).getCaptureArea());
 
         handle = service.start(selected, device, new LivenessListener() {
             @Override
@@ -253,28 +296,33 @@ public final class LiveCaptureApp {
 
     private void render(LivenessUpdate u) {
         LivenessState state = u.getState();
-        message.setText(html(u.getMessage().defaultText()));
+        message.setText(html(messages.text(u.getMessage())));
         message.setForeground(colorFor(state));
-        guidance.setText(u.getGuidance() == null ? " " : u.getGuidance().defaultText());
+        guidance.setText(u.getGuidance() == null ? " " : messages.text(u.getGuidance()));
         boolean inChallenge = state == LivenessState.ACTIVE_CHALLENGE || state == LivenessState.CHALLENGE_FEEDBACK;
-        step.setText(inChallenge ? "Challenge " + u.getChallengeNumber() + " of " + u.getChallengeCount() : " ");
+        step.setText(inChallenge
+                ? messages.ui(LivenessMessages.UI_CHALLENGE, u.getChallengeNumber(), u.getChallengeCount()) : " ");
         countdown.setText(u.getChallengeRemainingMs() >= 0
-                ? "Time left: " + (u.getChallengeRemainingMs() + 999) / 1000 + " s" : " ");
-        attempt.setText(state.isTerminal() ? " " : "Attempt " + u.getAttempt() + " of " + u.getMaxAttempts());
+                ? messages.ui(LivenessMessages.UI_TIME_LEFT, (u.getChallengeRemainingMs() + 999) / 1000) : " ");
+        attempt.setText(state.isTerminal() ? " "
+                : messages.ui(LivenessMessages.UI_ATTEMPT, u.getAttempt(), u.getMaxAttempts()));
         progress.setValue((int) Math.round(u.getProgress() * 100));
 
         if (state == LivenessState.ATTEMPT_FAILED) {
             StringBuilder sb = new StringBuilder("<html>");
             for (UserMessage tip : u.getTips()) {
-                sb.append("• ").append(tip.defaultText()).append("<br>");
+                sb.append("• ").append(messages.text(tip)).append("<br>");
             }
-            tips.setText(sb.append("<br>Press <b>Retry</b> to try again.</html>").toString());
+            tips.setText(sb.append("<br>").append(messages.ui(LivenessMessages.UI_PRESS_RETRY)).append("</html>").toString());
         } else if (!state.isTerminal()) {
             tips.setText(" ");
         }
 
         retry.setEnabled(u.isRetryAvailable());
         preview.showState(state, u.getCurrentChallenge());
+        if (diagnosticMode.isSelected()) {
+            engineReadout.setText(engine.lastDiagnostics());
+        }
     }
 
     private void finish(LivenessResult r) {
@@ -282,6 +330,8 @@ public final class LiveCaptureApp {
         workflow.setEnabled(true);
         retry.setEnabled(false);
         cancel.setEnabled(false);
+        tips.setText(r.getLockedUntil() > 0 ? lockedUntilText(r.getLockedUntil()) : " ");
+        appendLine("Engine readout at end: " + engine.lastDiagnostics().replace('\n', ' '));
 
         appendLine("RESULT: " + r.getOutcome()
                 + " | Liveness Score: " + (Float.isNaN(r.getPassiveScore()) ? "N/A" : String.format("%.1f", r.getPassiveScore()))
@@ -291,6 +341,12 @@ public final class LiveCaptureApp {
                 + " | Duration: " + r.getDurationMs() + "ms");
 
         metrics.setText("<html><body style='width:380px'>" + service.metrics().snapshot() + "</body></html>");
+    }
+
+    private String lockedUntilText(long until) {
+        String time = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(messages.locale())
+                .format(Instant.ofEpochMilli(until).atZone(ZoneId.systemDefault()));
+        return messages.ui(LivenessMessages.UI_LOCKED_UNTIL, time);
     }
 
     private void appendAudit(AuditEvent e) {

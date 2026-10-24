@@ -49,8 +49,16 @@ final class SimulationHarness implements LivenessListener {
     }
 
     LivenessSession newSession(LivenessPolicy policy, long challengeSeed, EngineInfo engineInfo) {
+        return newSession(policy, challengeSeed, engineInfo, null, null);
+    }
+
+    /** A new session that shares {@code rateLimiter}; clears the previous result so {@link #run} can be reused. */
+    LivenessSession newSession(LivenessPolicy policy, long challengeSeed, EngineInfo engineInfo,
+                               AttemptRateLimiter rateLimiter, String rateLimitKey) {
+        result = null;
         session = new LivenessSession("test-session", LivenessWorkflow.RESIDENT_REGISTRATION, policy, engineInfo,
-                new ChallengeSelector(new Random(challengeSeed)), audit, metrics, subject.respondingTo(this));
+                new ChallengeSelector(new Random(challengeSeed)), audit, metrics, subject.respondingTo(this),
+                rateLimiter, rateLimitKey);
         return session;
     }
 

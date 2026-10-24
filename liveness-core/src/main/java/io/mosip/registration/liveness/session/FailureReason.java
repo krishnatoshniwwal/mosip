@@ -20,13 +20,19 @@ public enum FailureReason {
     CONFIGURATION_ERROR(false, true, FAIL_GENERIC),
     FACE_NOT_DETECTED(true, false, FAIL_LIVENESS, GUIDE_FACE_IN_AREA, GUIDE_LOOK_AT_CAMERA, GUIDE_IMPROVE_LIGHTING),
     MULTIPLE_FACES(true, false, FAIL_LIVENESS, GUIDE_ONE_FACE),
+    /** A face was seen, but not inside the capture oval or not at a usable distance. */
+    FACE_NOT_POSITIONED(true, false, FAIL_POSITION, GUIDE_FACE_IN_AREA, GUIDE_LOOK_AT_CAMERA),
+    /** The face stayed covered and no fallback could verify it. */
+    FACE_OCCLUDED(true, false, FAIL_OCCLUDED, GUIDE_REMOVE_FACE_COVERING, GUIDE_REMOVE_SUNGLASSES, GUIDE_FACE_VISIBLE),
     POOR_FACE_QUALITY(true, false, FAIL_LIVENESS, GUIDE_IMPROVE_LIGHTING, GUIDE_FACE_VISIBLE, GUIDE_LOOK_AT_CAMERA),
     LIVENESS_BELOW_THRESHOLD(true, false, FAIL_LIVENESS, GUIDE_LOOK_AT_CAMERA, GUIDE_FACE_VISIBLE, GUIDE_IMPROVE_LIGHTING),
     PAD_ATTACK_DETECTED(true, false, FAIL_GENERIC, GUIDE_LOOK_AT_CAMERA),
     CHALLENGE_FAILED(true, false, FAIL_LIVENESS, GUIDE_FOLLOW_ACTION, GUIDE_FACE_IN_AREA),
     CHALLENGE_TIMEOUT(true, false, FAIL_LIVENESS, GUIDE_FOLLOW_ACTION, GUIDE_FACE_IN_AREA),
     /** Final result only: the configured retry limit was reached. */
-    MAX_RETRIES_EXCEEDED(true, true, FAIL_LIVENESS);
+    MAX_RETRIES_EXCEEDED(true, true, FAIL_LIVENESS),
+    /** Final result only: too many failures within the rate-limit window; verification is locked for a while. */
+    LOCKED_OUT(false, true, FINAL_LOCKED_OUT);
 
     private final boolean consumesAttempt;
     private final boolean terminal;

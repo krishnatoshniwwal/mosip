@@ -10,21 +10,25 @@ import io.mosip.registration.liveness.challenge.ActionDetectors;
 import io.mosip.registration.liveness.challenge.ChallengeSelector;
 import io.mosip.registration.liveness.challenge.ChallengeType;
 import io.mosip.registration.liveness.challenge.FaceBaseline;
+import io.mosip.registration.liveness.config.CaptureArea;
 import io.mosip.registration.liveness.config.FailureAction;
 import io.mosip.registration.liveness.config.LivenessPolicy;
 import io.mosip.registration.liveness.device.FaceFrame;
 import io.mosip.registration.liveness.engine.AttackType;
 import io.mosip.registration.liveness.engine.EngineInfo;
 import io.mosip.registration.liveness.engine.FaceObservation;
+import io.mosip.registration.liveness.engine.FaceRegion;
 import io.mosip.registration.liveness.engine.FrameAnalysis;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -39,11 +43,15 @@ import java.util.logging.Logger;
  *       ▲                                      │ more challenges
  *       └──────────────────────────────────────┘
  * Any phase ──PAD / timeout / wrong action / extra face / face lost──► ATTEMPT_FAILED ──retry()──► PASSIVE_CHECK
- *                                                     └──retry limit reached──► FAILED
+ *                                                     ├──retry limit reached──► FAILED
+ *                                                     └──rate limit reached──► FAILED (LOCKED_OUT)
  * </pre>
  *
  * PAD and face-continuity checks run on every frame in every phase, so a spoof cannot be swapped in
- * after the passive check. The class is deterministic: time is passed in, so tests can drive it
+ * after the passive check. Only a face inside the {@link CaptureArea} counts towards liveness or can
+ * be captured; during verification, leaving the oval counts as losing the face. A covered face
+ * (mask, sunglasses) is asked to uncover; if it stays covered for the grace period, verification falls
+ * back to active challenges that do not need the covered region. The class is deterministic: time is passed in, so tests can drive it
  * frame by frame. Methods are synchronized; listener callbacks run on the calling thread.
  */
 public final class LivenessSession {
@@ -60,6 +68,8 @@ public final class LivenessSession {
     static final float FRONTAL_MAX_ANGLE = 12f;
     private static final int MIN_ACTIVE_FRAMES_FOR_SCORE = 3;
     private static final float SCORE_SMOOTHING = 0.3f;
+    /** Consecutive uncovered frames before an occlusion is considered gone (absorbs detector flicker). */
+    static final int OCCLUSION_CLEAR_FRAMES = 3;
 
     private final String sessionId;
     private final LivenessWorkflow workflow;
@@ -69,6 +79,8 @@ public final class LivenessSession {
     private final AuditSink audit;
     private final LivenessMetrics metrics;
     private final LivenessListener listener;
+    private final AttemptRateLimiter rateLimiter;
+    private final String rateLimitKey;
 
     private volatile LivenessState state = LivenessState.NOT_STARTED;
     private long sessionStart;
@@ -79,6 +91,7 @@ public final class LivenessSession {
     private FailureReason lastFailure;
     private FailureReason finalReason;
     private FailureAction requiredAction;
+    private long lockedUntil;
 
     // Per-attempt state, reset by beginAttempt().
     private long phaseStart;
@@ -88,6 +101,16 @@ public final class LivenessSession {
     private int noFaceFrames;
     private int multiFaceFrames;
     private int poorQualityFrames;
+    private int outOfAreaFrames;
+    private boolean lastFaceOutOfArea;
+    private int occludedFrames;
+    private long occlusionSince = -1;
+    private long lastOccludedAt = Long.MIN_VALUE;
+    private int clearFramesInRow;
+    private boolean occlusionFallback;
+    private boolean occludedAtCapture;
+    private final Set<FaceRegion> occludedRegions = EnumSet.noneOf(FaceRegion.class);
+    private Set<FaceRegion> currentOcclusion = Collections.emptySet();
     private float passiveScore = Float.NaN;
     private FaceBaseline baseline;
     private List<ChallengeType> challenges = Collections.emptyList();
@@ -108,6 +131,18 @@ public final class LivenessSession {
     public LivenessSession(String sessionId, LivenessWorkflow workflow, LivenessPolicy policy, EngineInfo engineInfo,
                            ChallengeSelector selector, AuditSink audit, LivenessMetrics metrics,
                            LivenessListener listener) {
+        this(sessionId, workflow, policy, engineInfo, selector, audit, metrics, listener, null, null);
+    }
+
+    /**
+     * @param rateLimiter  shared across sessions to lock out repeated failures; null disables rate limiting
+     * @param rateLimitKey who the failures are counted against (see {@link AttemptRateLimiter})
+     */
+    public LivenessSession(String sessionId, LivenessWorkflow workflow, LivenessPolicy policy, EngineInfo engineInfo,
+                           ChallengeSelector selector, AuditSink audit, LivenessMetrics metrics,
+                           LivenessListener listener, AttemptRateLimiter rateLimiter, String rateLimitKey) {
+        this.rateLimiter = rateLimiter;
+        this.rateLimitKey = rateLimitKey;
         this.sessionId = sessionId;
         this.workflow = workflow;
         this.policy = policy;
@@ -134,7 +169,16 @@ public final class LivenessSession {
         metrics.sessionStarted();
         audit(AuditEventType.SESSION_STARTED, now,
                 "engine", engineInfo.describe(), "policy", policy.summary());
+        long until = rateLimited() ? rateLimiter.lockedUntil(rateLimitKey, now) : 0;
+        if (until > 0) {
+            lockOut(until, "locked before session start", now);
+            return;
+        }
         beginAttempt(now);
+    }
+
+    private boolean rateLimited() {
+        return rateLimiter != null && policy.isEnabled() && policy.isRateLimitEnabled();
     }
 
     /** Feeds the engine's analysis of one frame. Ignored unless the session is collecting frames. */
@@ -175,6 +219,7 @@ public final class LivenessSession {
                 AttackType type = analysis.getPad().getAttackType();
                 metrics.padDetected();
                 audit(AuditEventType.PAD_ATTACK_DETECTED, now, "attackType", type.name(),
+                        "indicators", analysis.getPad().getIndicators().toString(),
                         "attackFrames", String.valueOf(padAttackFrames),
                         "bonaFideScore", fmt(analysis.getPad().getBonaFideScore()), "phase", state.name());
                 failAttempt(FailureReason.PAD_ATTACK_DETECTED, "attackType=" + type, now);
@@ -189,8 +234,19 @@ public final class LivenessSession {
             passive.reset();
         }
         lastFace = face;
+
+        CaptureArea.Position position = policy.getCaptureArea().locate(face);
+        if (position != CaptureArea.Position.INSIDE) {
+            // Not counted. During verification the face-loss timer runs, so staying out fails the attempt.
+            outOfAreaFrames++;
+            lastFaceOutOfArea = true;
+            guidance = guidanceFor(position);
+            return false;
+        }
+        lastFaceOutOfArea = false;
         lastFaceSeenAt = now;
 
+        boolean occluded = trackOcclusion(face, now);
         boolean goodQuality = face.getQuality() >= policy.getMinFaceQuality();
         if (goodQuality) {
             guidance = null;
@@ -198,9 +254,20 @@ public final class LivenessSession {
             poorQualityFrames++;
             guidance = UserMessage.GUIDE_IMPROVE_LIGHTING;
         }
+        boolean blocksCapture = occluded && !policy.isOcclusionAllowCapture();
+        if (occluded && (!occlusionFallback || (state == LivenessState.HOLD_STILL && blocksCapture))) {
+            guidance = currentOcclusion.contains(FaceRegion.LOWER_FACE)
+                    ? UserMessage.GUIDE_REMOVE_FACE_COVERING : UserMessage.GUIDE_REMOVE_SUNGLASSES;
+        }
 
         switch (state) {
             case PASSIVE_CHECK:
+                if (occluded && !occlusionFallback) {
+                    if (now - occlusionSince < policy.getOcclusionGraceMs()) {
+                        break;
+                    }
+                    enterOcclusionFallback(now);
+                }
                 if (goodQuality) {
                     passive.add(face, analysis.getLivenessScore());
                     if (passive.usableFrames() >= policy.getPassiveMinFrames()) {
@@ -216,7 +283,12 @@ public final class LivenessSession {
                 if (policy.isEnabled() && trackActiveLiveness(analysis, now)) {
                     return true;
                 }
-                if (goodQuality && isCapturable(face)
+                if (blocksCapture) {
+                    // Drop any frame picked before: a detector that misses the cover on one frame must not let it through.
+                    occludedAtCapture = true;
+                    bestFrame = null;
+                    bestFace = null;
+                } else if (goodQuality && isCapturable(face)
                         && (bestFace == null || face.getQuality() > bestFace.getQuality())) {
                     bestFace = face;
                     bestFrame = frame;
@@ -228,19 +300,71 @@ public final class LivenessSession {
         return !state.acceptsFrames();
     }
 
+    private static UserMessage guidanceFor(CaptureArea.Position position) {
+        switch (position) {
+            case TOO_FAR:
+                return UserMessage.GUIDE_MOVE_CLOSER;
+            case TOO_CLOSE:
+                return UserMessage.GUIDE_MOVE_BACK;
+            default:
+                return UserMessage.GUIDE_FACE_IN_AREA;
+        }
+    }
+
+    /**
+     * @return true if the face counts as covered (occlusion handling enabled). Sticky: once seen, the face
+     * stays covered until {@link #OCCLUSION_CLEAR_FRAMES} uncovered frames in a row, so a detector that
+     * misses the mask on an occasional frame does not briefly "uncover" it.
+     */
+    private boolean trackOcclusion(FaceObservation face, long now) {
+        if (!policy.isOcclusionEnabled() || !face.isOccluded()) {
+            if (++clearFramesInRow >= OCCLUSION_CLEAR_FRAMES) {
+                occlusionSince = -1;
+                currentOcclusion = Collections.emptySet();
+            }
+            return occlusionSince >= 0;
+        }
+        clearFramesInRow = 0;
+        occludedFrames++;
+        lastOccludedAt = now;
+        currentOcclusion = face.getOccludedRegions();
+        occludedRegions.addAll(currentOcclusion);
+        if (occlusionSince < 0) {
+            occlusionSince = now;
+        }
+        return true;
+    }
+
+    /** The final image may be taken only after a full hold-still window with no cover seen. */
+    private boolean clearOfOcclusion(long now) {
+        return !policy.isOcclusionEnabled() || policy.isOcclusionAllowCapture()
+                || lastOccludedAt == Long.MIN_VALUE || now - lastOccludedAt >= policy.getHoldStillMs();
+    }
+
+    /** The subject did not uncover in time: continue, but trust only challenges that avoid the covered region. */
+    private void enterOcclusionFallback(long now) {
+        occlusionFallback = true;
+        audit(AuditEventType.OCCLUSION_FALLBACK, now, "regions", occludedRegions.toString(),
+                "coveredForMs", String.valueOf(now - occlusionSince));
+    }
+
     private void decidePassive(long now) {
         passiveScore = passive.score();
         baseline = passive.baseline();
         boolean meetsThreshold = passiveScore >= policy.getPassiveThreshold();
-        String decision = meetsThreshold && !policy.isActiveAlways() ? "PASS"
-                : policy.isActiveEnabled() ? "ACTIVE_REQUIRED" : "FAIL";
+        // Passive PAD is less reliable on a covered face, so a fallback always needs active proof.
+        boolean needsActive = !meetsThreshold || policy.isActiveAlways() || occlusionFallback;
+        String decision = !needsActive ? "PASS" : policy.isActiveEnabled() ? "ACTIVE_REQUIRED" : "FAIL";
         audit(AuditEventType.PASSIVE_RESULT, now, "score", fmt(passiveScore),
                 "threshold", String.valueOf(policy.getPassiveThreshold()),
-                "frames", String.valueOf(passive.usableFrames()), "decision", decision);
+                "frames", String.valueOf(passive.usableFrames()), "occlusionFallback", String.valueOf(occlusionFallback),
+                "decision", decision);
         if ("PASS".equals(decision)) {
             enterHoldStill(now);
         } else if (policy.isActiveEnabled()) {
             startActive(now);
+        } else if (occlusionFallback && meetsThreshold) {
+            failAttempt(FailureReason.FACE_OCCLUDED, "covered face and active liveness disabled", now);
         } else {
             failAttempt(FailureReason.LIVENESS_BELOW_THRESHOLD, "passive score " + fmt(passiveScore), now);
         }
@@ -249,9 +373,28 @@ public final class LivenessSession {
     private void startActive(long now) {
         activePerformed = true;
         metrics.activeStarted();
+        List<ChallengeType> allowed = new ArrayList<>();
+        int available = 0;
+        for (ChallengeType type : policy.getChallengeTypes()) {
+            if (type.requiredRegion() == null || !occludedRegions.contains(type.requiredRegion())) {
+                allowed.add(type);
+                if (engineInfo.getSupportedChallenges().contains(type)) {
+                    available++;
+                }
+            }
+        }
+        int min = policy.getMinChallenges();
+        if (!occludedRegions.isEmpty()) {
+            if (available == 0) {
+                failAttempt(FailureReason.FACE_OCCLUDED,
+                        "no supported challenge avoids covered " + occludedRegions, now);
+                return;
+            }
+            min = Math.min(min, available);
+        }
         try {
-            challenges = selector.select(policy.getChallengeTypes(), policy.getMinChallenges(),
-                    policy.getMaxChallenges(), engineInfo.getSupportedChallenges(), previousChallenges);
+            challenges = selector.select(allowed, min, Math.max(min, policy.getMaxChallenges()),
+                    engineInfo.getSupportedChallenges(), previousChallenges);
         } catch (IllegalStateException e) {
             failAttempt(FailureReason.CONFIGURATION_ERROR, e.getMessage(), now);
             return;
@@ -353,7 +496,11 @@ public final class LivenessSession {
     private void evaluateTimers(long now) {
         boolean verifying = policy.isEnabled() && state != LivenessState.PASSIVE_CHECK;
         if (verifying && lastFace != null && now - lastFaceSeenAt > MAX_FACE_LOSS_MS) {
-            failAttempt(FailureReason.FACE_NOT_DETECTED, "face lost during " + state, now);
+            if (lastFaceOutOfArea) {
+                failAttempt(FailureReason.FACE_NOT_POSITIONED, "face left the capture area during " + state, now);
+            } else {
+                failAttempt(FailureReason.FACE_NOT_DETECTED, "face lost during " + state, now);
+            }
             return;
         }
         switch (state) {
@@ -375,11 +522,15 @@ public final class LivenessSession {
                 break;
             case HOLD_STILL:
                 long held = now - phaseStart;
-                if (bestFrame != null && held >= policy.getHoldStillMs()) {
+                if (bestFrame != null && held >= policy.getHoldStillMs() && clearOfOcclusion(now)) {
                     pass(now);
                 } else if (held > policy.getHoldStillMs() + policy.getPassiveTimeoutMs()) {
-                    failAttempt(policy.isEnabled() ? FailureReason.POOR_FACE_QUALITY : dominantFrameProblem(),
-                            "no frontal, eyes-open frame of sufficient quality", now);
+                    if (occludedAtCapture) {
+                        failAttempt(FailureReason.FACE_OCCLUDED, "face stayed covered at capture", now);
+                    } else {
+                        failAttempt(policy.isEnabled() ? FailureReason.POOR_FACE_QUALITY : dominantFrameProblem(),
+                                "no frontal, eyes-open frame of sufficient quality", now);
+                    }
                 }
                 break;
             default:
@@ -391,13 +542,17 @@ public final class LivenessSession {
         if (framesThisAttempt == 0) {
             return FailureReason.DEVICE_DISCONNECTED;
         }
-        if (noFaceFrames >= multiFaceFrames && noFaceFrames >= poorQualityFrames && noFaceFrames > 0) {
-            return FailureReason.FACE_NOT_DETECTED;
+        // Most frequent problem wins; ties go to the earlier entry.
+        int[] counts = {noFaceFrames, multiFaceFrames, outOfAreaFrames, occludedFrames, poorQualityFrames};
+        FailureReason[] reasons = {FailureReason.FACE_NOT_DETECTED, FailureReason.MULTIPLE_FACES,
+                FailureReason.FACE_NOT_POSITIONED, FailureReason.FACE_OCCLUDED, FailureReason.POOR_FACE_QUALITY};
+        int best = reasons.length - 1;
+        for (int i = reasons.length - 1; i >= 0; i--) {
+            if (counts[i] > 0 && counts[i] >= counts[best]) {
+                best = i;
+            }
         }
-        if (multiFaceFrames >= poorQualityFrames && multiFaceFrames > 0) {
-            return FailureReason.MULTIPLE_FACES;
-        }
-        return FailureReason.POOR_FACE_QUALITY;
+        return reasons[best];
     }
 
     /** Device, frame or engine fault reported by the service. Does not consume the retry budget. */
@@ -438,6 +593,16 @@ public final class LivenessSession {
         noFaceFrames = 0;
         multiFaceFrames = 0;
         poorQualityFrames = 0;
+        outOfAreaFrames = 0;
+        lastFaceOutOfArea = false;
+        occludedFrames = 0;
+        occlusionSince = -1;
+        lastOccludedAt = Long.MIN_VALUE;
+        clearFramesInRow = 0;
+        occlusionFallback = false;
+        occludedAtCapture = false;
+        occludedRegions.clear();
+        currentOcclusion = Collections.emptySet();
         passiveScore = Float.NaN;
         baseline = null;
         challenges = Collections.emptyList();
@@ -471,6 +636,14 @@ public final class LivenessSession {
         }
         audit(AuditEventType.ATTEMPT_FAILED, now, "reason", reason.name(), "detail", detail,
                 "phase", state.name(), "countedFailures", String.valueOf(countedFailures));
+        if (reason.consumesAttempt() && rateLimited()) {
+            long until = rateLimiter.recordFailure(rateLimitKey, policy.getRateLimitMaxFailures(),
+                    policy.getRateLimitWindowMs(), policy.getRateLimitLockoutMs(), now);
+            if (until > 0) {
+                lockOut(until, "too many failed attempts", now);
+                return;
+            }
+        }
         boolean exhausted = countedFailures > policy.getMaxRetries();
         if (reason.isTerminal() || exhausted) {
             finalReason = exhausted ? FailureReason.MAX_RETRIES_EXCEEDED : reason;
@@ -485,6 +658,20 @@ public final class LivenessSession {
         }
         state = LivenessState.ATTEMPT_FAILED;
         emit(now);
+    }
+
+    private void lockOut(long until, String detail, long now) {
+        lockedUntil = until;
+        finalReason = FailureReason.LOCKED_OUT;
+        requiredAction = FailureAction.BLOCK;
+        state = LivenessState.FAILED;
+        metrics.failed();
+        audit(AuditEventType.RATE_LIMIT_LOCKOUT, now, "lockedUntil", Instant.ofEpochMilli(until).toString(),
+                "detail", detail, "maxFailures", String.valueOf(policy.getRateLimitMaxFailures()),
+                "windowMs", String.valueOf(policy.getRateLimitWindowMs()));
+        audit(AuditEventType.LIVENESS_FAILED, now, "reason", finalReason.name(),
+                "requiredAction", requiredAction.name(), "attemptFailures", attemptFailures.toString());
+        complete(LivenessOutcome.FAILED, now);
     }
 
     private void pass(long now) {
@@ -502,7 +689,7 @@ public final class LivenessSession {
                 outcome == LivenessOutcome.FAILED ? finalReason : null,
                 outcome == LivenessOutcome.FAILED ? requiredAction : null,
                 accepted ? bestFrame : null, accepted ? bestFace : null, passiveScore, activePerformed,
-                completed, attemptSequence, attemptFailures, engineInfo.describe(), now - sessionStart);
+                completed, attemptSequence, attemptFailures, engineInfo.describe(), now - sessionStart, lockedUntil);
         emit(now);
         try {
             listener.onComplete(result);
@@ -548,6 +735,9 @@ public final class LivenessSession {
             case ATTEMPT_FAILED:
                 return lastFailure.message();
             case FAILED:
+                if (finalReason == FailureReason.LOCKED_OUT) {
+                    return UserMessage.FINAL_LOCKED_OUT;
+                }
                 if (finalReason != FailureReason.MAX_RETRIES_EXCEEDED) {
                     return UserMessage.FINAL_BLOCKED;
                 }

@@ -13,7 +13,9 @@ public enum AuditEventType {
     LIVENESS_PASSED("REG-LIV-009"),
     LIVENESS_FAILED("REG-LIV-010"),
     SESSION_CANCELLED("REG-LIV-011"),
-    SYSTEM_ERROR("REG-LIV-012");
+    SYSTEM_ERROR("REG-LIV-012"),
+    OCCLUSION_FALLBACK("REG-LIV-013"),
+    RATE_LIMIT_LOCKOUT("REG-LIV-014");
 
     private final String code;
 

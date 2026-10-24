@@ -1,6 +1,8 @@
 package io.mosip.registration.liveness.live;
 
 import io.mosip.registration.liveness.challenge.ChallengeType;
+import io.mosip.registration.liveness.config.CaptureArea;
+import io.mosip.registration.liveness.config.LivenessPolicy;
 import io.mosip.registration.liveness.device.FaceFrame;
 import io.mosip.registration.liveness.device.PixelFormat;
 import io.mosip.registration.liveness.session.LivenessState;
@@ -17,6 +19,7 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Ellipse2D;
+import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferByte;
 import java.io.ByteArrayInputStream;
@@ -31,6 +34,9 @@ import java.util.logging.Logger;
  * <p>BGR24 frames are converted directly into a {@link BufferedImage}; JPEG frames
  * are decoded via {@link ImageIO}. The image is mirrored horizontally to give a
  * natural selfie-style view.
+ *
+ * <p>The guide oval is the policy's {@link CaptureArea}, mapped onto the displayed (letterboxed,
+ * mirrored) image, so the oval on screen is exactly the region the liveness session enforces.
  */
 final class CameraPreviewPanel extends JPanel {
 
@@ -45,6 +51,9 @@ final class CameraPreviewPanel extends JPanel {
     private volatile BufferedImage currentImage;
     private volatile LivenessState state = LivenessState.NOT_STARTED;
     private volatile ChallengeType challenge;
+    private volatile CaptureArea area = LivenessPolicy.builder().build().getCaptureArea();
+    /** Aspect ratio of the last camera frame, used to place the oval before the first frame arrives. */
+    private volatile double frameAspect = 4.0 / 3.0;
 
     CameraPreviewPanel() {
         setPreferredSize(new Dimension(480, 360));
@@ -61,8 +70,15 @@ final class CameraPreviewPanel extends JPanel {
         BufferedImage img = toImage(frame);
         if (img != null) {
             currentImage = img;
+            frameAspect = (double) img.getWidth() / img.getHeight();
             repaint();
         }
+    }
+
+    /** The oval to draw; must be the capture area of the policy the running session uses. */
+    void setCaptureArea(CaptureArea captureArea) {
+        area = captureArea;
+        repaint();
     }
 
     /**
@@ -91,15 +107,16 @@ final class CameraPreviewPanel extends JPanel {
         g.fillRect(0, 0, w, h);
 
         BufferedImage img = currentImage;
+        Rectangle2D imageArea = fit(img != null ? (double) img.getWidth() / img.getHeight() : frameAspect, w, h);
         if (img != null) {
-            drawMirroredImage(g, img, w, h);
+            drawMirroredImage(g, img, imageArea);
         } else {
             g.setColor(new Color(0x8A96A3));
             g.setFont(getFont().deriveFont(Font.PLAIN, 15f));
             centered(g, state.isTerminal() ? "Camera released" : "Camera idle \u2013 press Start", w / 2, h / 2);
         }
 
-        drawGuide(g, w, h);
+        drawGuide(g, imageArea);
         g.dispose();
     }
 
@@ -128,37 +145,34 @@ final class CameraPreviewPanel extends JPanel {
 
     // ---- mirrored drawing ----
 
-    /**
-     * Draws the camera image scaled to fit the panel while maintaining aspect
-     * ratio, and mirrors it horizontally so the user sees a selfie-style view.
-     */
-    private static void drawMirroredImage(Graphics2D g, BufferedImage img, int panelW, int panelH) {
-        double imgAspect = (double) img.getWidth() / img.getHeight();
+    /** Largest rectangle with the image's aspect ratio that fits the panel, centred (letterboxed). */
+    private static Rectangle2D fit(double imgAspect, int panelW, int panelH) {
         double panelAspect = (double) panelW / panelH;
-
-        int drawW, drawH;
+        double drawW;
+        double drawH;
         if (imgAspect > panelAspect) {
             drawW = panelW;
-            drawH = (int) Math.round(panelW / imgAspect);
+            drawH = panelW / imgAspect;
         } else {
             drawH = panelH;
-            drawW = (int) Math.round(panelH * imgAspect);
+            drawW = panelH * imgAspect;
         }
+        return new Rectangle2D.Double((panelW - drawW) / 2, (panelH - drawH) / 2, drawW, drawH);
+    }
 
-        int x = (panelW - drawW) / 2;
-        int y = (panelH - drawH) / 2;
-
+    /** Draws the camera image into {@code r}, mirrored horizontally for a selfie-style view. */
+    private static void drawMirroredImage(Graphics2D g, BufferedImage img, Rectangle2D r) {
         // Mirror horizontally: translate to the right edge, then scale X by -1.
         AffineTransform saved = g.getTransform();
-        g.translate(x + drawW, y);
+        g.translate(r.getMaxX(), r.getY());
         g.scale(-1.0, 1.0);
-        g.drawImage(img, 0, 0, drawW, drawH, null);
+        g.drawImage(img, 0, 0, (int) Math.round(r.getWidth()), (int) Math.round(r.getHeight()), null);
         g.setTransform(saved);
     }
 
     // ---- guide overlay ----
 
-    private void drawGuide(Graphics2D g, int w, int h) {
+    private void drawGuide(Graphics2D g, Rectangle2D image) {
         Color color;
         switch (state) {
             case ACTIVE_CHALLENGE:
@@ -177,17 +191,21 @@ final class CameraPreviewPanel extends JPanel {
                 color = NEUTRAL;
         }
 
-        double gw = w * 0.44;
-        double gh = h * 0.74;
+        // Capture area is in unmirrored frame coordinates; the preview is mirrored.
+        CaptureArea a = area;
+        double gw = 2 * a.getRadiusX() * image.getWidth();
+        double gh = 2 * a.getRadiusY() * image.getHeight();
+        double ox = image.getX() + (1 - a.getCenterX()) * image.getWidth();
+        double oy = image.getY() + a.getCenterY() * image.getHeight();
         g.setColor(color);
         g.setStroke(new BasicStroke(3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
                 1f, new float[]{10f, 8f}, 0f));
-        g.draw(new Ellipse2D.Double(w / 2.0 - gw / 2, h * 0.48 - gh / 2, gw, gh));
+        g.draw(new Ellipse2D.Double(ox - gw / 2, oy - gh / 2, gw, gh));
 
         ChallengeType c = challenge;
         if (state == LivenessState.ACTIVE_CHALLENGE && c != null) {
-            int cx = w / 2;
-            int cy = (int) (h * 0.48);
+            int cx = (int) ox;
+            int cy = (int) oy;
             int reach = (int) (gw / 2 + 34);
             switch (c) {
                 case TURN_LEFT:

@@ -64,6 +64,7 @@ New-Item -ItemType Directory -Force $out | Out-Null
 
 Write-Host '== Compiling liveness-core'
 Compile "$root/liveness-core/src/main/java" "$out/core" ''
+Copy-Item -Recurse -Force "$root/liveness-core/src/main/resources/*" "$out/core/"   # message bundles
 
 Write-Host '== Compiling liveness-camera (OpenCV webcam)'
 Compile "$root/liveness-camera/src/main/java" "$out/camera" "$out/core;$opencvJar"

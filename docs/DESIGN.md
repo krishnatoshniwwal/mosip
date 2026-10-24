@@ -119,7 +119,8 @@ stateDiagram-v2
 
 | Check | Defends against |
 |---|---|
-| PAD verdict; `pad.minAttackFrames` flagged frames in an attempt reject it | print, screen, replay, mask |
+| Face must be inside the capture oval (`capture.area.*`) to count or be captured; leaving it during verification fails the attempt | capturing a bystander or a face held up at the edge of the view |
+| PAD verdict (model + replay cues); `pad.minAttackFrames` flagged frames in an attempt reject it | print, screen, replay, mask |
 | More than one face after passive → fail | an accomplice performing the action for a photo |
 | Face-centre jump > 25 % of the frame between frames → fail | swapping media mid-session |
 | Face out of view > 1.5 s once verification started → fail | swapping media off-camera |
@@ -128,6 +129,71 @@ stateDiagram-v2
 
 **Why the hybrid matters:** the simulated "video replay" (see tests) gets past the passive PAD model, but it
 cannot follow 2–3 random prompts in random order, so it times out or performs the wrong action.
+
+### Capture area
+
+The oval on the capture screen is enforced, not decorative. `CaptureArea` (part of each workflow's policy)
+is an ellipse in normalised coordinates of the unmirrored device frame, plus a centring tolerance and a
+face-size range. For every frame the session asks where the face is:
+
+| Position | Session behaviour | Guidance |
+|---|---|---|
+| `INSIDE` | Counts towards passive liveness, challenges and capture | — |
+| `OFF_CENTER` | Ignored; during verification, > 1.5 s out fails with `FACE_NOT_POSITIONED` | "Keep your face within the capture area" |
+| `TOO_FAR` / `TOO_CLOSE` | Same | "Move closer to the camera" / "Move back from the camera" |
+
+PAD and the extra-face check still run on faces outside the oval. Moving away from the camera can't hide
+an attack, and a second person anywhere in view still fails verification. The UI draws the same ellipse,
+mapped onto the letterboxed, mirrored preview image, so the oval on screen matches the area being checked.
+
+### Occlusion handling
+
+The engine reports covered regions per face (`FaceObservation.getOccludedRegions()`: `EYES` for sunglasses
+or tinted glasses, `LOWER_FACE` for a mask or scarf). The ONNX engine's `OcclusionAnalyzer` compares each
+region with the subject's own skin (forehead/cheek reference), which keeps it fair across skin tones. A
+texture test stops a full beard from counting as a mask. Clear prescription glasses are not reported.
+
+```mermaid
+flowchart LR
+    C[Covered face seen] --> P[Prompt: remove mask / sunglasses<br/>frames not used]
+    P -->|uncovered within occlusion.graceMs| N[Normal passive check]
+    P -->|still covered| F[Fallback: OCCLUSION_FALLBACK audit<br/>active challenges forced]
+    F --> S[Challenge pool minus actions needing<br/>the covered region: no SMILE under a mask,<br/>no BLINK behind sunglasses]
+    S -->|pool empty| X[FACE_OCCLUDED]
+    S --> H[Hold still]
+    H -->|occlusion.allowCapture=false and still covered| X
+    H --> OK[Captured]
+```
+
+Passive PAD is less reliable on a covered face, so a fallback never passes on the passive score alone.
+For the resident biometric (`occlusion.allowCapture=false`) the final image must be uncovered, while
+operator login can accept a covered face once liveness has been proven actively.
+
+### Replay attack cues
+
+`ReplayAttackDetector` adds three image cues to the MiniFASNet verdict for the primary face:
+
+| Cue | What it measures | Weight |
+|---|---|---|
+| Moiré | Isolated peaks in the *whitened* spectrum of the inner face (camera aliasing a display's pixel grid); axes and JPEG 8×8 block harmonics excluded | 0.3 |
+| Lighting uniformity | Coefficient of variation of the heavily blurred face luminance; a backlit display lacks 3D shading | 0.2 |
+| Bezel / frame edges | Long straight edges (Hough) just outside the face on 2–4 sides, as from a phone, tablet or monitor bezel or a photo border | 0.5 |
+
+The weighted suspicion lowers the bona fide score by up to 60%, so mild suspicion escalates to active
+challenges. At 0.45 the frame is reported as an attack (`SCREEN_DISPLAY`, or `UNKNOWN` for a frame alone).
+A full bezel alone, or strong moiré on flat lighting, reaches that threshold; uniform lighting alone never
+can, because evenly front-lit registration desks also look flat. The indicators (`PadIndicator`) go to the
+audit trail only. The thresholds are first estimates validated on synthetic images and must be calibrated
+on recorded bona fide and attack sessions (§8).
+
+### Rate limiting
+
+`AttemptRateLimiter` counts failed attempts (those that use up a retry; device faults don't) **across
+sessions**, per workflow and subject key: the operator or supervisor user ID, the registration ID, or the
+whole station when no key is given. `rateLimit.maxFailures` failures within `rateLimit.windowMs` lock
+face verification for `rateLimit.lockoutMs`. The current session ends with `LOCKED_OUT` (`BLOCK`), and
+new sessions for that key are refused before any frame is analysed. With a store file, state survives a
+client restart, so closing the application doesn't reset a lockout. Keys are stored only as SHA-256 hashes.
 
 ## 4. Workflow integration
 
@@ -141,7 +207,7 @@ sequenceDiagram
     participant SES as LivenessSession
     participant AUD as Audit
 
-    UI->>SVC: start(workflow, device, listener)
+    UI->>SVC: start(workflow, subjectKey, device, listener)
     SVC->>DEV: open(), startStream()
     SVC->>SES: start() → PASSIVE_CHECK
     SES->>AUD: SESSION_STARTED, ATTEMPT_STARTED
@@ -175,6 +241,12 @@ Integration points in the Registration Client:
   and biometric login/authentication controllers in place of the single-shot face capture. Marshal
   `LivenessListener` callbacks with `Platform.runLater`. Map `AuditSink` onto the existing audit manager so
   the events go out with the normal audit sync.
+- **Localisation:** `LivenessMessages.forLanguage(code)` accepts the client's ISO 639-3 language codes
+  (`eng`, `fra`, `ara`, …) and returns every prompt, status, failure and UI label in that language. It
+  also reports whether the layout is right-to-left (Arabic). Bundles: English, French, Arabic, Hindi,
+  Kannada, Tamil, Filipino, Amharic, Sinhala. They are UTF-8 files generated from one table
+  (`tools/gen_liveness_messages.py`) and checked for completeness by tests. Translations are
+  machine-assisted drafts and need native-speaker review before deployment.
 - **Android (Flutter + Java):** `liveness-core` is plain Java 11 bytecode with no dependencies, so it runs
   unchanged in the Android client's native layer. A `MethodChannel`/`EventChannel` exposes `start`, `retry`
   and `cancel` and streams `LivenessUpdate` to the Flutter screen. A `CameraX`/vendor-SDK
@@ -201,6 +273,16 @@ All keys live under `mosip.registration.liveness.` and can be overridden per wor
 | `retry.max` | 2 | Retries after the first failure |
 | `retry.exhaustedAction` | BLOCK | `BLOCK` · `REQUIRE_SUPERVISOR_OVERRIDE` · `ALLOW_ALTERNATE_AUTH` |
 | `capture.holdStillMs` | 700 | Hold-still window for the final frame |
+| `capture.area.enabled` | true | Enforce the capture oval |
+| `capture.area.centerX` / `centerY` | 0.5 / 0.48 | Oval centre (normalised, unmirrored frame) |
+| `capture.area.radiusX` / `radiusY` | 0.22 / 0.37 | Oval radii (normalised) |
+| `capture.area.centerTolerance` | 0.45 | Allowed face-centre offset, as a fraction of the radii |
+| `capture.area.minFill` / `maxFill` | 0.4 / 1.15 | Face width as a fraction of oval width (too far / too close) |
+| `occlusion.enabled` | true | Detect and handle covered faces |
+| `occlusion.graceMs` | 3000 | Time to uncover before falling back to region-safe active challenges |
+| `occlusion.allowCapture` | false | Whether the final image may show a covered face |
+| `rateLimit.enabled` | true | Lock out after repeated failures |
+| `rateLimit.maxFailures` / `windowMs` / `lockoutMs` | 5 / 600000 / 900000 | Failures within the window that trigger a lockout, and its length |
 
 Validation is strict: unknown keys (typos), out-of-range values and inconsistent combinations
 (`active.always` without `active.enabled`, `minChallenges` > pool) fail at load time with the key named.
@@ -214,11 +296,14 @@ Validation is strict: unknown keys (typos), out-of-range values and inconsistent
 | Malformed frames (5 in a row) | `INVALID_FRAME_DATA` | No | same |
 | Engine exceptions (3 in a row) | `ENGINE_ERROR` | No | generic |
 | No face / several faces / poor quality | `FACE_NOT_DETECTED`, `MULTIPLE_FACES`, `POOR_FACE_QUALITY` | Yes | "We could not verify face liveness…" + specific tips |
+| Face outside the oval or at the wrong distance | `FACE_NOT_POSITIONED` | Yes | "We could not see your face inside the oval…" |
+| Face stayed covered and no fallback could verify or capture it | `FACE_OCCLUDED` | Yes | "Your face appears to be covered…" + remove mask / sunglasses |
 | Low passive score, active disabled; score drop during challenges | `LIVENESS_BELOW_THRESHOLD` | Yes | same |
 | Presentation attack | `PAD_ATTACK_DETECTED` | Yes | **generic** "Face verification could not be completed" (attack type only in audit) |
 | Wrong action / continuity broken | `CHALLENGE_FAILED` | Yes | + "Follow the prompted action" |
 | Challenge not done in time | `CHALLENGE_TIMEOUT` | Yes | same |
 | Retry budget exhausted | `MAX_RETRIES_EXCEEDED` | n/a | Message for the configured `FailureAction` |
+| Rate limit reached (this or earlier sessions) | `LOCKED_OUT` | terminal | "Too many unsuccessful attempts… temporarily locked", `BLOCK`, lockout end in `LivenessResult.getLockedUntil()` |
 | Challenge pool unsatisfiable | `CONFIGURATION_ERROR` | terminal | generic, `BLOCK` |
 
 Faults that are not the person's doing never use up their attempts. Retry after a device fault re-opens the stream.
@@ -230,6 +315,9 @@ Faults that are not the person's doing never use up their attempts. Retry after 
 - **Least disclosure to the user**: PAD failures show a generic message. Attack type and scores are only
   in audit/diagnostics, so an attacker learns nothing about what the detector saw.
 - **Unpredictability**: `SecureRandom` count and order; no repeats; a different sequence on retry.
+- **Brute-force resistance**: failed attempts are rate limited across sessions per subject, with lockout
+  state persisted (hashed keys) so a restart does not clear it. Audit events `OCCLUSION_FALLBACK`
+  (REG-LIV-013) and `RATE_LIMIT_LOCKOUT` (REG-LIV-014) record fallbacks and lockouts.
 - **Fail closed**: engine/device faults never produce a pass; an unsatisfiable policy is a hard failure;
   unknown config keys are rejected.
 - **Offline parity**: engine, challenge generation and action validation are all local; the network is
@@ -258,7 +346,7 @@ Faults that are not the person's doing never use up their attempts. Retry after 
 
 ## 9. Testing
 
-`liveness-core` has 48 automated tests (`build.ps1` / `mvn verify`):
+106 automated tests across `liveness-core` and `liveness-onnx-engine` (`build.ps1` / `build.sh` / `mvn verify`):
 
 - **Session (deterministic, virtual clock):** passive-only pass; low score → random challenges → pass;
   `active.always`; unresponsive subject exhausts retries with the configured action; printed photo
@@ -270,9 +358,19 @@ Faults that are not the person's doing never use up their attempts. Retry after 
   device recovers; persistent engine errors; corrupt frames tolerated.
 - **SBI adapter:** fake local SBI server (STREAM request body, multipart, chunked, HTTP errors, unreachable).
 - **Unit:** challenge selection randomness and constraints; blink/smile/head-pose detectors; config parsing.
+- **Capture area:** geometry and validation; a face beside the oval, too far or too close is never captured;
+  moving into the oval passes; drifting out during a challenge fails with `FACE_NOT_POSITIONED`.
+- **Occlusion:** prompts for mask/sunglasses; uncovering in time avoids the fallback; persistent mask or
+  sunglasses → active challenges without SMILE/BLINK; covered resident face is not captured.
+- **Rate limiting:** window and lockout, persistence across restart, hashed store, cross-session lockout
+  refusing new sessions, device faults not counted.
+- **Localisation:** every bundle has exactly the message keys, prompts are translated, MOSIP codes and
+  fallback, RTL, `MessageFormat` labels, PAD failures stay generic in every language.
+- **Engine cues (synthetic images, OpenCV):** moiré grating, flat vs shaded lighting, phone bezel, JPEG grid
+  exclusion, verdict combination; occlusion for mask, sunglasses, both, beard (not a mask), darker skin tone.
 
-The mock device plus `SimulatedSubject` (live / photo / screen / replay / nobody / two people, cooperative
-/ unresponsive / wrong action) is the automated liveness and PAD scenario framework from the bonus tasks.
+The mock device plus `SimulatedSubject` (live / photo / screen / replay / nobody / two people; placement in
+the frame; mask or sunglasses; cooperative / unresponsive / wrong action) is the automated liveness and PAD scenario framework from the bonus tasks.
 
 ## 10. Roadmap
 

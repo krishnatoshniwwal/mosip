@@ -7,6 +7,8 @@ import io.mosip.registration.liveness.challenge.ChallengeType;
 import io.mosip.registration.liveness.config.LivenessConfig;
 import io.mosip.registration.liveness.device.DeviceLevel;
 import io.mosip.registration.liveness.device.FaceFrame;
+import io.mosip.registration.liveness.engine.FaceRegion;
+import io.mosip.registration.liveness.i18n.LivenessMessages;
 import io.mosip.registration.liveness.mock.MockFaceDevice;
 import io.mosip.registration.liveness.mock.SimulatedLivenessEngine;
 import io.mosip.registration.liveness.mock.SimulatedSubject;
@@ -42,6 +44,7 @@ import javax.swing.WindowConstants;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.ComponentOrientation;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
@@ -51,7 +54,14 @@ import java.awt.event.WindowEvent;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.FormatStyle;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Random;
+import java.util.Set;
 
 /**
  * Reference face capture / authentication screen. Runs the real liveness service against the mock
@@ -75,16 +85,37 @@ public final class LivenessDemoApp {
         SCREEN("Attack: photo on a screen", Presentation.SCREEN_DISPLAY, 0),
         REPLAY("Attack: video replay (evades passive PAD)", Presentation.VIDEO_REPLAY, 0),
         NOBODY("Nobody in front of the camera", Presentation.NO_FACE, 0),
-        TWO("Two people in view", Presentation.TWO_FACES, 85);
+        TWO("Two people in view", Presentation.TWO_FACES, 85),
+        OFF_CENTER("Live person, beside the oval", 0.82f, 0.48f, 1f, Collections.emptySet()),
+        FAR("Live person, too far from the camera", 0.5f, 0.48f, 0.45f, Collections.emptySet()),
+        MASK("Live person wearing a mask", 0.5f, 0.48f, 1f, EnumSet.of(FaceRegion.LOWER_FACE)),
+        SUNGLASSES("Live person wearing sunglasses", 0.5f, 0.48f, 1f, EnumSet.of(FaceRegion.EYES));
 
         final String label;
         final Presentation presentation;
         final float livenessLevel;
+        final float x;
+        final float y;
+        final float scale;
+        final Set<FaceRegion> occlusion;
 
         Scenario(String label, Presentation presentation, float livenessLevel) {
+            this(label, presentation, livenessLevel, 0.5f, 0.48f, 1f, Collections.emptySet());
+        }
+
+        Scenario(String label, float x, float y, float scale, Set<FaceRegion> occlusion) {
+            this(label, Presentation.LIVE, 85, x, y, scale, occlusion);
+        }
+
+        Scenario(String label, Presentation presentation, float livenessLevel, float x, float y, float scale,
+                 Set<FaceRegion> occlusion) {
             this.label = label;
             this.presentation = presentation;
             this.livenessLevel = livenessLevel;
+            this.x = x;
+            this.y = y;
+            this.scale = scale;
+            this.occlusion = occlusion;
         }
 
         @Override
@@ -107,6 +138,8 @@ public final class LivenessDemoApp {
     private final JButton retry = new JButton("Retry");
     private final JButton cancel = new JButton("Cancel");
     private final JCheckBox diagnosticMode = new JCheckBox("Diagnostic mode");
+    private final JComboBox<String> language = new JComboBox<>(LivenessMessages.LANGUAGES.toArray(new String[0]));
+    private LivenessMessages messages = LivenessMessages.english();
     private final JLabel message = new JLabel("Press Start to capture the face");
     private final JLabel guidance = new JLabel(" ");
     private final JLabel step = new JLabel(" ");
@@ -154,6 +187,17 @@ public final class LivenessDemoApp {
         top.add(retry);
         top.add(cancel);
         top.add(Box.createHorizontalStrut(16));
+        top.add(new JLabel("Language:"));
+        language.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean selected,
+                                                          boolean focus) {
+                String name = LivenessMessages.forLanguage((String) value).displayName();
+                return super.getListCellRendererComponent(list, name, index, selected, focus);
+            }
+        });
+        language.addActionListener(e -> applyLanguage());
+        top.add(language);
         top.add(diagnosticMode);
         retry.setEnabled(false);
         cancel.setEnabled(false);
@@ -189,6 +233,7 @@ public final class LivenessDemoApp {
             handle.retry();
         });
         cancel.addActionListener(e -> handle.cancel());
+        applyLanguage();
         diagnosticMode.addActionListener(e -> {
             diagnostics.setVisible(diagnosticMode.isSelected());
             frame.pack();
@@ -210,6 +255,19 @@ public final class LivenessDemoApp {
         frame.pack();
         frame.setLocationRelativeTo(null);
         frame.setVisible(true);
+    }
+
+    private void applyLanguage() {
+        messages = LivenessMessages.forLanguage((String) language.getSelectedItem());
+        start.setText(messages.ui(LivenessMessages.UI_START));
+        retry.setText(messages.ui(LivenessMessages.UI_RETRY));
+        cancel.setText(messages.ui(LivenessMessages.UI_CANCEL));
+        ComponentOrientation orientation = messages.isRightToLeft()
+                ? ComponentOrientation.RIGHT_TO_LEFT : ComponentOrientation.LEFT_TO_RIGHT;
+        for (JLabel c : new JLabel[] {message, guidance, step, countdown, attempt, tips}) {
+            c.setComponentOrientation(orientation);
+            c.setHorizontalAlignment(JLabel.LEADING);
+        }
     }
 
     private JComponent statusPanel() {
@@ -246,6 +304,8 @@ public final class LivenessDemoApp {
         scenario.addActionListener(e -> {
             Scenario s = (Scenario) scenario.getSelectedItem();
             subject.setPresentation(s.presentation);
+            subject.setPlacement(s.x, s.y, s.scale);
+            subject.setOcclusion(s.occlusion);
             if (s.livenessLevel > 0) {
                 subject.setLivenessLevel(s.livenessLevel);
             }
@@ -309,6 +369,7 @@ public final class LivenessDemoApp {
         workflow.setEnabled(false);
         cancel.setEnabled(true);
         tips.setText(" ");
+        preview.setCaptureArea(config.policyFor(selected).getCaptureArea());
         handle = service.start(selected, device, subject.respondingTo(new LivenessListener() {
             @Override
             public void onUpdate(LivenessUpdate update) {
@@ -329,21 +390,23 @@ public final class LivenessDemoApp {
 
     private void render(LivenessUpdate u) {
         LivenessState state = u.getState();
-        message.setText(html(u.getMessage().defaultText()));
+        message.setText(html(messages.text(u.getMessage())));
         message.setForeground(colorFor(state));
-        guidance.setText(u.getGuidance() == null ? " " : u.getGuidance().defaultText());
+        guidance.setText(u.getGuidance() == null ? " " : messages.text(u.getGuidance()));
         boolean inChallenge = state == LivenessState.ACTIVE_CHALLENGE || state == LivenessState.CHALLENGE_FEEDBACK;
-        step.setText(inChallenge ? "Step " + u.getChallengeNumber() + " of " + u.getChallengeCount() : " ");
+        step.setText(inChallenge
+                ? messages.ui(LivenessMessages.UI_CHALLENGE, u.getChallengeNumber(), u.getChallengeCount()) : " ");
         countdown.setText(u.getChallengeRemainingMs() >= 0
-                ? "Time left: " + (u.getChallengeRemainingMs() + 999) / 1000 + " s" : " ");
-        attempt.setText(state.isTerminal() ? " " : "Attempt " + u.getAttempt() + " of " + u.getMaxAttempts());
+                ? messages.ui(LivenessMessages.UI_TIME_LEFT, (u.getChallengeRemainingMs() + 999) / 1000) : " ");
+        attempt.setText(state.isTerminal() ? " "
+                : messages.ui(LivenessMessages.UI_ATTEMPT, u.getAttempt(), u.getMaxAttempts()));
         progress.setValue((int) Math.round(u.getProgress() * 100));
         if (state == LivenessState.ATTEMPT_FAILED) {
             StringBuilder sb = new StringBuilder("<html>");
             for (UserMessage tip : u.getTips()) {
-                sb.append("• ").append(tip.defaultText()).append("<br>");
+                sb.append("• ").append(messages.text(tip)).append("<br>");
             }
-            tips.setText(sb.append("<br>Press <b>Retry</b> to try again.</html>").toString());
+            tips.setText(sb.append("<br>").append(messages.ui(LivenessMessages.UI_PRESS_RETRY)).append("</html>").toString());
         } else if (!state.isTerminal()) {
             tips.setText(" ");
         }
@@ -356,12 +419,19 @@ public final class LivenessDemoApp {
         workflow.setEnabled(true);
         retry.setEnabled(false);
         cancel.setEnabled(false);
+        tips.setText(r.getLockedUntil() > 0 ? lockedUntilText(r.getLockedUntil()) : " ");
         appendLine("RESULT " + r.getOutcome()
                 + (r.getFailureReason() != null ? " reason=" + r.getFailureReason() : "")
                 + (r.getRequiredAction() != null ? " requiredAction=" + r.getRequiredAction() : "")
                 + " attempts=" + r.getAttempts() + " active=" + r.isActiveVerificationPerformed()
                 + " challenges=" + r.getChallengesCompleted() + " duration=" + r.getDurationMs() + "ms");
         metrics.setText("<html><body style='width:400px'>" + service.metrics().snapshot() + "</body></html>");
+    }
+
+    private String lockedUntilText(long until) {
+        String time = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(messages.locale())
+                .format(Instant.ofEpochMilli(until).atZone(ZoneId.systemDefault()));
+        return messages.ui(LivenessMessages.UI_LOCKED_UNTIL, time);
     }
 
     private void appendAudit(AuditEvent e) {

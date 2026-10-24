@@ -18,13 +18,16 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
  * On-device liveness and PAD engine: YuNet face detection with five landmarks, landmark-based head
- * pose, face quality, and anti-spoofing (ONNX model or heuristic fallback).
+ * pose, face quality, occlusion (sunglasses, mask, scarf), and anti-spoofing: the MiniFASNet models
+ * (or a heuristic fallback) combined with screen/photo replay cues (moiré, lighting uniformity,
+ * bezel edges, see {@link ReplayAttackDetector}).
  *
  * <p>Only challenges the engine can genuinely measure are advertised in {@link #info()}. Head turns
  * come from the landmarks. Blink and smile need a dense landmark model, so eye openness and smile
@@ -43,6 +46,9 @@ public final class OnnxLivenessEngine implements LivenessEngine {
     private final FaceDetector faceDetector;
     private final FaceLandmarkAnalyzer landmarkAnalyzer;
     private final AntiSpoofAnalyzer antiSpoofAnalyzer;
+    private final ReplayAttackDetector replayDetector = new ReplayAttackDetector();
+    private final OcclusionAnalyzer occlusionAnalyzer = new OcclusionAnalyzer();
+    private volatile String lastDiagnostics = "no frame analysed yet";
 
     /**
      * @param modelDir directory holding the model files
@@ -53,14 +59,23 @@ public final class OnnxLivenessEngine implements LivenessEngine {
         this.landmarkAnalyzer = new FaceLandmarkAnalyzer(modelDir);
         this.antiSpoofAnalyzer = new AntiSpoofAnalyzer(modelDir);
 
-        String modelVersion = "yunet-2023mar+" + (antiSpoofAnalyzer.isUsingModel() ? "minifasnet" : "heuristic-pad");
-        this.engineInfo = new EngineInfo("MOSIP Real-Time Liveness Engine", "1.1.0", modelVersion,
+        String modelVersion = "yunet-2023mar+" + (antiSpoofAnalyzer.isUsingModel() ? "minifasnet" : "heuristic-pad")
+                + "+replay-cues+occlusion";
+        this.engineInfo = new EngineInfo("MOSIP Real-Time Liveness Engine", "1.2.0", modelVersion,
                 MEASURABLE_CHALLENGES, true);
     }
 
     /** Model directory from {@value #MODEL_DIR_PROPERTY}, or {@code models} in the working directory. */
     public static Path defaultModelDir() {
         return Paths.get(System.getProperty(MODEL_DIR_PROPERTY, "models")).toAbsolutePath();
+    }
+
+    /**
+     * Measurements behind the last frame's PAD and occlusion decisions (numbers only, no image data),
+     * for the diagnostic mode of the capture screen. Never show this to the person being verified.
+     */
+    public String lastDiagnostics() {
+        return lastDiagnostics;
     }
 
     @Override
@@ -86,11 +101,17 @@ public final class OnnxLivenessEngine implements LivenessEngine {
 
             List<DetectedFace> detectedFaces = faceDetector.detect(bgrMat);
             if (detectedFaces.isEmpty()) {
+                lastDiagnostics = "no face detected";
                 return new FrameAnalysis(Collections.emptyList(), 0f, PadResult.notEvaluated());
             }
 
             List<FaceObservation> observations = new ArrayList<>();
+            StringBuilder diagnostics = new StringBuilder();
             for (DetectedFace face : detectedFaces) {
+                OcclusionAnalyzer.Result occlusion = occlusionAnalyzer.measure(bgrMat, face);
+                if (diagnostics.length() == 0) {
+                    diagnostics.append("occlusion: ").append(occlusion.measurements);
+                }
                 Rect r = face.getBox();
                 float[] pose = HeadPoseEstimator.estimate(face);
                 observations.add(FaceObservation.builder()
@@ -98,6 +119,7 @@ public final class OnnxLivenessEngine implements LivenessEngine {
                         .size((float) r.width / frameW, (float) r.height / frameH)
                         .quality(landmarkAnalyzer.estimateQuality(bgrMat, r))
                         .pose(pose[0], pose[1], pose[2])
+                        .occluded(occlusion.regions)
                         .build());
             }
 
@@ -106,10 +128,23 @@ public final class OnnxLivenessEngine implements LivenessEngine {
             float livenessScore = 0f;
 
             if (detectedFaces.size() == 1) {
-                padResult = antiSpoofAnalyzer.analyze(bgrMat, detectedFaces.get(0).getBox());
+                Rect box = detectedFaces.get(0).getBox();
+                padResult = antiSpoofAnalyzer.analyze(bgrMat, box);
+                if (!Float.isNaN(padResult.getBonaFideScore())) {
+                    ReplayAttackDetector.Assessment replay = replayDetector.analyze(bgrMat, box);
+                    float modelScore = padResult.getBonaFideScore();
+                    padResult = ReplayAttackDetector.combine(padResult, replay);
+                    diagnostics.append("\nreplay: ").append(replay)
+                            .append(String.format(Locale.ROOT, "\nPAD: model %.1f -> combined %.1f%s", modelScore,
+                                    padResult.getBonaFideScore(), padResult.isAttackDetected() ? " ATTACK" : ""));
+                }
                 livenessScore = antiSpoofAnalyzer.livenessScore(padResult);
             }
 
+            if (detectedFaces.size() > 1) {
+                diagnostics.append("\n").append(detectedFaces.size()).append(" faces");
+            }
+            lastDiagnostics = diagnostics.toString();
             return new FrameAnalysis(observations, livenessScore, padResult);
 
         } catch (Exception e) {

@@ -4,6 +4,7 @@ import io.mosip.registration.liveness.challenge.ChallengeType;
 import io.mosip.registration.liveness.device.FaceFrame;
 import io.mosip.registration.liveness.engine.AttackType;
 import io.mosip.registration.liveness.engine.FaceObservation;
+import io.mosip.registration.liveness.engine.FaceRegion;
 import io.mosip.registration.liveness.engine.PadResult;
 import io.mosip.registration.liveness.session.LivenessListener;
 import io.mosip.registration.liveness.session.LivenessResult;
@@ -12,8 +13,10 @@ import io.mosip.registration.liveness.session.LivenessUpdate;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 import java.util.function.LongSupplier;
 
 /**
@@ -56,6 +59,10 @@ public final class SimulatedSubject {
     private volatile ResponseMode responseMode = ResponseMode.FOLLOW_PROMPTS;
     private volatile long reactionDelayMs = 500;
     private volatile boolean naturalBlinks = true;
+    private volatile float placeX = 0.5f;
+    private volatile float placeY = 0.48f;
+    private volatile float placeScale = 1f;
+    private volatile Set<FaceRegion> occlusion = Collections.emptySet();
 
     private ChallengeType action;
     private long actionStart;
@@ -76,6 +83,16 @@ public final class SimulatedSubject {
     public void setResponseMode(ResponseMode mode) { responseMode = mode; }
     public void setReactionDelayMs(long ms) { reactionDelayMs = ms; }
     public void setNaturalBlinks(boolean enabled) { naturalBlinks = enabled; }
+    /** Where the live face is in the frame (centre, normalised) and how large relative to a normal distance. */
+    public void setPlacement(float centerX, float centerY, float scale) {
+        placeX = centerX;
+        placeY = centerY;
+        placeScale = scale;
+    }
+    /** Regions of the live face covered by a mask, scarf or sunglasses; the engine cannot measure them. */
+    public void setOcclusion(Set<FaceRegion> regions) {
+        occlusion = regions.isEmpty() ? Collections.emptySet() : EnumSet.copyOf(regions);
+    }
 
     /** Starts a facial action now. Ignored by photos, screens and replays, which cannot respond. */
     public void perform(ChallengeType type) {
@@ -157,13 +174,16 @@ public final class SimulatedSubject {
                 action = null;
             }
         }
+        Set<FaceRegion> covered = occlusion;
         return FaceObservation.builder()
-                .center(centerX - yaw / TURN_DEGREES * 0.03f + jitter(0.004f), 0.48f - pitch / TILT_DEGREES * 0.03f + jitter(0.004f))
-                .size(0.34f, 0.46f)
+                .center(centerX + (placeX - 0.5f) - yaw / TURN_DEGREES * 0.03f + jitter(0.004f),
+                        placeY - pitch / TILT_DEGREES * 0.03f + jitter(0.004f))
+                .size(0.34f * placeScale, 0.46f * placeScale)
                 .quality(clamp(quality + Math.round(jitter(4f)), 0, 100))
-                .eyes(clamp01(eyes))
-                .smile(clamp01(smile))
+                .eyes(covered.contains(FaceRegion.EYES) ? Float.NaN : clamp01(eyes))
+                .smile(covered.contains(FaceRegion.LOWER_FACE) ? Float.NaN : clamp01(smile))
                 .pose(yaw, pitch, jitter(1.5f))
+                .occluded(covered)
                 .build();
     }
 

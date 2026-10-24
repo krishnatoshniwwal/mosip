@@ -53,6 +53,21 @@ public final class LivenessConfig {
         KEYS.put("retry.exhaustedAction", (b, v) -> b.retryExhaustedAction(
                 FailureAction.valueOf(v.trim().toUpperCase(Locale.ROOT))));
         KEYS.put("capture.holdStillMs", (b, v) -> b.holdStillMs(parseLong(v)));
+        KEYS.put("capture.area.enabled", (b, v) -> b.captureAreaEnabled(parseBoolean(v)));
+        KEYS.put("capture.area.centerX", (b, v) -> b.captureAreaCenterX(parseFloat(v)));
+        KEYS.put("capture.area.centerY", (b, v) -> b.captureAreaCenterY(parseFloat(v)));
+        KEYS.put("capture.area.radiusX", (b, v) -> b.captureAreaRadiusX(parseFloat(v)));
+        KEYS.put("capture.area.radiusY", (b, v) -> b.captureAreaRadiusY(parseFloat(v)));
+        KEYS.put("capture.area.centerTolerance", (b, v) -> b.captureAreaCenterTolerance(parseFloat(v)));
+        KEYS.put("capture.area.minFill", (b, v) -> b.captureAreaMinFill(parseFloat(v)));
+        KEYS.put("capture.area.maxFill", (b, v) -> b.captureAreaMaxFill(parseFloat(v)));
+        KEYS.put("occlusion.enabled", (b, v) -> b.occlusionEnabled(parseBoolean(v)));
+        KEYS.put("occlusion.graceMs", (b, v) -> b.occlusionGraceMs(parseLong(v)));
+        KEYS.put("occlusion.allowCapture", (b, v) -> b.occlusionAllowCapture(parseBoolean(v)));
+        KEYS.put("rateLimit.enabled", (b, v) -> b.rateLimitEnabled(parseBoolean(v)));
+        KEYS.put("rateLimit.maxFailures", (b, v) -> b.rateLimitMaxFailures(parseInt(v)));
+        KEYS.put("rateLimit.windowMs", (b, v) -> b.rateLimitWindowMs(parseLong(v)));
+        KEYS.put("rateLimit.lockoutMs", (b, v) -> b.rateLimitLockoutMs(parseLong(v)));
     }
 
     private final Map<LivenessWorkflow, LivenessPolicy> policies;
