@@ -25,10 +25,12 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -60,7 +62,7 @@ class SbiFaceStreamDeviceTest {
             }
         }, request);
 
-        SbiFaceStreamDevice device = new SbiFaceStreamDevice("127.0.0.1", server.getLocalPort(), "1", INFO);
+        SbiFaceStreamDevice device = new SbiFaceStreamDevice("127.0.0.1", server.getLocalPort(), "dev-7", "1", INFO);
         CollectingListener listener = new CollectingListener();
         device.open();
         device.startStream(listener);
@@ -76,17 +78,78 @@ class SbiFaceStreamDeviceTest {
         assertTrue(request.get().startsWith("STREAM /stream HTTP/1.1"), request.get());
         assertTrue(request.get().contains("\"serialNo\":\"SN123\""), request.get());
         assertTrue(request.get().contains("\"deviceSubId\":\"1\""), request.get());
+        assertTrue(request.get().contains("\"deviceId\":\"dev-7\""), "MOSIP 1.2 devices and the mock SBI need deviceId");
+        assertFalse(request.get().contains("timeout"), "SBI timeout limits the whole stream; never send it");
     }
 
     @Test
     void rejectedStreamRequestIsAConnectionFailure() throws Exception {
         startFakeSbi(out -> write(out, "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n"),
                 new AtomicReference<>());
-        SbiFaceStreamDevice device = new SbiFaceStreamDevice("127.0.0.1", server.getLocalPort(), "1", INFO);
+        SbiFaceStreamDevice device = new SbiFaceStreamDevice("127.0.0.1", server.getLocalPort(), "dev-7", "1", INFO);
         device.open();
 
         DeviceException e = assertThrows(DeviceException.class, () -> device.startStream(new CollectingListener()));
         assertEquals(DeviceException.Kind.CONNECTION_FAILED, e.getKind());
+    }
+
+    @Test
+    void sbiErrorInsteadOfVideoIsReportedWithItsCode() throws Exception {
+        String error = "{\"errorCode\":\"605\",\"errorInfo\":\"Device is not connected or not Registered\"}";
+        startFakeSbi(out -> write(out, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                + error.length() + "\r\n\r\n" + error), new AtomicReference<>());
+        SbiFaceStreamDevice device = new SbiFaceStreamDevice("127.0.0.1", server.getLocalPort(), "dev-7", "1", INFO);
+        device.open();
+
+        DeviceException e = assertThrows(DeviceException.class, () -> device.startStream(new CollectingListener()));
+        assertEquals(DeviceException.Kind.CONNECTION_FAILED, e.getKind());
+        assertTrue(e.getMessage().contains("605") && e.getMessage().contains("not connected"), e.getMessage());
+    }
+
+    @Test
+    void briefBusyAfterARestartIsRetried() throws Exception {
+        byte[] jpeg = fakeJpeg(320, 240);
+        String busy = "{\"errorCode\":\"111\",\"errorInfo\":\"Device is busy\"}";
+        AtomicInteger streamRequests = new AtomicInteger();
+        startFakeSbi(out -> {
+            if (streamRequests.incrementAndGet() <= 2) {
+                write(out, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + busy.length()
+                        + "\r\n\r\n" + busy);
+                return;
+            }
+            write(out, "HTTP/1.0 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=--BoundaryString\r\n\r\n");
+            write(out, "--BoundaryString\r\nContent-Type:image/jpeg\r\nContent-Length:" + jpeg.length + "\r\n\r\n");
+            out.write(jpeg);
+            write(out, "\r\n\r\n");
+        }, new AtomicReference<>());
+        SbiFaceStreamDevice device = new SbiFaceStreamDevice("127.0.0.1", server.getLocalPort(), "3", "0", INFO);
+        CollectingListener listener = new CollectingListener();
+        device.open();
+
+        device.startStream(listener);
+
+        assertTrue(listener.ended.await(5, TimeUnit.SECONDS));
+        assertEquals(3, streamRequests.get(), "two busy answers, then the stream");
+        assertEquals(1, listener.frames.size(), "MOSIP mock SBI framing (boundary written with its dashes)");
+    }
+
+    @Test
+    void persistentBusyIsReportedAsCameraUnavailable() throws Exception {
+        String busy = "{\"errorCode\":\"111\",\"errorInfo\":\"Device is busy\"}";
+        startFakeSbi(out -> write(out, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                + busy.length() + "\r\n\r\n" + busy), new AtomicReference<>());
+        SbiFaceStreamDevice device = new SbiFaceStreamDevice("127.0.0.1", server.getLocalPort(), "3", "0", INFO);
+        device.open();
+
+        DeviceException e = assertThrows(DeviceException.class, () -> device.startStream(new CollectingListener()));
+        assertEquals(DeviceException.Kind.CAMERA_UNAVAILABLE, e.getKind());
+    }
+
+    @Test
+    void busyDeviceIsCameraUnavailable() {
+        DeviceException e = SbiFaceStreamDevice.sbiError("[{\"error\":{\"errorCode\":\"111\",\"errorInfo\":\"Device busy\"}}]");
+        assertEquals(DeviceException.Kind.CAMERA_UNAVAILABLE, e.getKind());
+        assertTrue(e.getMessage().contains("111"));
     }
 
     @Test
@@ -95,7 +158,7 @@ class SbiFaceStreamDeviceTest {
         try (ServerSocket s = new ServerSocket(0)) {
             freePort = s.getLocalPort();
         }
-        SbiFaceStreamDevice device = new SbiFaceStreamDevice("127.0.0.1", freePort, "1", INFO, 500, 500);
+        SbiFaceStreamDevice device = new SbiFaceStreamDevice("127.0.0.1", freePort, "dev-7", "1", INFO, 500, 500);
         DeviceException e = assertThrows(DeviceException.class, device::open);
         assertEquals(DeviceException.Kind.UNAVAILABLE, e.getKind());
     }

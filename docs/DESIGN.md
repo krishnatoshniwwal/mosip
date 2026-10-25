@@ -62,10 +62,20 @@ The security logic is written and tested once.
 
 - `FaceFrame` = device id, sequence, timestamp, size, `PixelFormat` (GRAY8/RGB24/BGR24/NV21/JPEG), bytes,
   optional device metadata (an L1 device may supply its own face box or quality).
-- `SbiFaceStreamDevice` sends the SBI `STREAM /stream` request (`serialNo`, `deviceSubId`, `timeout`) to the
-  local MDS. It parses the `multipart/x-mixed-replace` M-JPEG body (Content-Length or SOI/EOI framing, and
-  chunked transfer encoding), reads JPEG dimensions from the SOF header, and reports a broken stream as
-  `onStreamError` / `onStreamEnded`.
+- `SbiDiscovery` finds face devices with `MOSIPDISC /device {"type":"Face"}` on ports 4501-4600 and returns
+  each device's `deviceId`, sub-IDs, status, L0/L1 certification, purpose, and make/model/serial from the
+  digital ID (device capability discovery). `DeviceSelector` turns a spec (`webcam:0`, `sbi:auto`,
+  `sbi:host:port[:subId]`) into a device for the live app and the tools.
+- `SbiFaceStreamDevice` sends `STREAM /stream` with `deviceId` (SBI 0.9.5 / MOSIP 1.2 devices) and `serialNo`
+  (SBI 1.0) plus `deviceSubId`. It deliberately sends no `timeout`, which in SBI caps the whole stream's
+  duration. It parses the `multipart/x-mixed-replace` M-JPEG body (Content-Length or SOI/EOI framing,
+  chunked transfer encoding, boundaries written with or without the leading dashes), reads JPEG dimensions
+  from the SOF header, and reports a broken stream as `onStreamError` / `onStreamEnded`. A refused stream
+  (HTTP 200 with a JSON error) is reported with its SBI error code. "Busy" or "not ready" answers are retried
+  for about 1.5 s, because a device service only notices a closed stream on its next frame.
+- Verified against the MOSIP mock SBI (`mosip-mock-services/MockMDS`): discovery, about 22 fps of 490x360 JPEG,
+  all conformance checks pass, engine at about 35 ms per frame. The mock streams an annotated still image
+  (a drawn face box and landmarks), which PAD correctly rejects, so a passing session over SBI needs a real device.
 - The handle runs analysis on **one worker thread per session**. Only the **newest** pending frame is kept,
   so on slow (low-end Android) hardware latency stays bounded instead of a queue building up. Dropped frames
   are counted in metrics.

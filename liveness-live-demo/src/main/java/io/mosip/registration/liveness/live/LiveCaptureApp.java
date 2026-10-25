@@ -3,9 +3,10 @@ package io.mosip.registration.liveness.live;
 import io.mosip.registration.liveness.LivenessWorkflow;
 import io.mosip.registration.liveness.audit.AuditEvent;
 import io.mosip.registration.liveness.audit.AuditSink;
-import io.mosip.registration.liveness.camera.OpenCvCameraDevice;
+import io.mosip.registration.liveness.camera.DeviceSelector;
 import io.mosip.registration.liveness.camera.OpenCvLoader;
 import io.mosip.registration.liveness.config.LivenessConfig;
+import io.mosip.registration.liveness.device.DeviceException;
 import io.mosip.registration.liveness.device.FaceCaptureDevice;
 import io.mosip.registration.liveness.device.FaceFrame;
 import io.mosip.registration.liveness.engine.LivenessEngineException;
@@ -82,7 +83,7 @@ public final class LiveCaptureApp {
     private final FaceLivenessService service;
     private LivenessHandle handle;
 
-    private final JFrame frame = new JFrame("MOSIP Face Liveness - LIVE Webcam Capture");
+    private final JFrame frame = new JFrame("MOSIP Face Liveness - Live Capture");
     private final CameraPreviewPanel preview = new CameraPreviewPanel();
     private final JComboBox<LivenessWorkflow> workflow = new JComboBox<>(LivenessWorkflow.values());
     private final JButton start = new JButton("Start Live Capture");
@@ -103,14 +104,19 @@ public final class LiveCaptureApp {
     private final JTextArea engineReadout = new JTextArea(4, 40);
     private final JPanel diagnostics = new JPanel(new BorderLayout(0, 6));
 
-    /** @throws LivenessEngineException if the liveness models cannot be loaded */
-    public LiveCaptureApp(LivenessConfig config, String configSource, int cameraIndex) throws LivenessEngineException {
+    /**
+     * @param deviceSpec {@code webcam:<index>}, {@code sbi:auto} or {@code sbi:<host>:<port>[:<subId>]} (see {@link DeviceSelector})
+     * @throws LivenessEngineException if the liveness models cannot be loaded
+     * @throws DeviceException         if the SBI face device cannot be found or is not ready
+     */
+    public LiveCaptureApp(LivenessConfig config, String configSource, String deviceSpec)
+            throws LivenessEngineException, DeviceException {
         this.config = config;
         this.configSource = configSource;
 
         OpenCvLoader.ensureLoaded();
         this.engine = createEngine();
-        this.device = new OpenCvCameraDevice(cameraIndex, 15);
+        this.device = DeviceSelector.create(deviceSpec, 15);
 
         AuditSink audit = event -> SwingUtilities.invokeLater(() -> appendAudit(event));
         this.service = new FaceLivenessService(config, engine, audit);
@@ -146,12 +152,19 @@ public final class LiveCaptureApp {
             config = LivenessConfig.defaults();
             source = "built-in defaults";
         }
-        int camIndex = args.length > 1 ? Integer.parseInt(args[1]) : 0;
+        // Second argument: a device spec, or a bare webcam index as before.
+        String argSpec = args.length > 1 ? (args[1].matches("\\d+") ? "webcam:" + args[1] : args[1])
+                : DeviceSelector.DEFAULT_SPEC;
+        String deviceSpec = DeviceSelector.specFromProperty(argSpec);
         SwingUtilities.invokeLater(() -> {
             try {
-                new LiveCaptureApp(config, source, camIndex).show();
+                new LiveCaptureApp(config, source, deviceSpec).show();
             } catch (LivenessEngineException e) {
                 JOptionPane.showMessageDialog(null, e.getMessage(), "Face liveness engine unavailable",
+                        JOptionPane.ERROR_MESSAGE);
+                System.exit(1);
+            } catch (DeviceException | IllegalArgumentException e) {
+                JOptionPane.showMessageDialog(null, e.getMessage(), "Face capture device unavailable",
                         JOptionPane.ERROR_MESSAGE);
                 System.exit(1);
             }

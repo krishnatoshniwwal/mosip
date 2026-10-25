@@ -70,6 +70,21 @@ class CameraConsentTest {
         assertEquals("not asked", only(AuditEventType.CONSENT_NOT_GIVEN).getDetails().get("reason"));
     }
 
+    /**
+     * Sessions that end inside start must still start and complete normally. Guards the ordering in
+     * LivenessHandle.begin() (ticker scheduled before the start task); the old race was too rare to hit reliably.
+     */
+    @Test
+    void sessionsEndingAtStartNeverFailToStart() throws Exception {
+        FaceLivenessService service = service(FAST);
+        for (int i = 0; i < 100; i++) {
+            CameraConsent declined = CameraConsent.declined("camera-notice-v1", "en", System.currentTimeMillis());
+            LivenessResult r = service.start(LivenessWorkflow.RESIDENT_REGISTRATION, declined, device, ui())
+                    .result().get(5, TimeUnit.SECONDS);
+            assertEquals(FailureReason.CONSENT_DECLINED, r.getFailureReason());
+        }
+    }
+
     @Test
     void declinedConsentKeepsTheCameraOffAndIsAudited() throws Exception {
         CameraConsent declined = CameraConsent.declined("camera-notice-v1", "fr", System.currentTimeMillis());

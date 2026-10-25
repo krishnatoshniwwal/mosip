@@ -4,10 +4,11 @@
     .\build.ps1 -SkipTests  compile only
     .\build.ps1 -Run        compile, test, then launch LIVE webcam face liveness
     .\build.ps1 -Run -Sim   compile, test, then launch the simulated desktop demo
+    .\build.ps1 -Run -Device sbi:auto   live capture from the MOSIP SBI face device (found on ports 4501-4600)
     .\build.ps1 -Tool "interop --device webcam:0"   compile, then run a command-line tool (no tests)
   Maven users: mvn verify  (see pom.xml)
 #>
-param([switch]$Run, [switch]$Sim, [switch]$SkipTests, [string]$Tool)
+param([switch]$Run, [switch]$Sim, [switch]$SkipTests, [string]$Tool, [string]$Device = 'webcam:0')
 if ($Tool) { $SkipTests = $true }
 $ErrorActionPreference = 'Stop'
 
@@ -80,17 +81,18 @@ Compile "$root/liveness-desktop-demo/src/main/java" "$out/demo" "$out/core"
 Write-Host '== Compiling liveness-live-demo (live webcam UI)'
 Compile "$root/liveness-live-demo/src/main/java" "$out/live" "$out/core;$out/camera;$out/onnx;$opencvJar;$onnxJar"
 
+Write-Host '== Compiling liveness-tools (evaluation, interop, model packages)'
+Compile "$root/liveness-tools/src/main/java" "$out/tools" "$out/core;$out/camera;$out/onnx;$opencvJar;$onnxJar"
+
 if (-not $SkipTests) {
     Write-Host '== Compiling tests'
     Compile "$root/liveness-core/src/test/java" "$out/test" "$out/core;$junitJar"
     Compile "$root/liveness-onnx-engine/src/test/java" "$out/onnx-test" "$out/core;$out/onnx;$opencvJar;$onnxJar;$junitJar"
+    Compile "$root/liveness-tools/src/test/java" "$out/tools-test" "$out/core;$out/camera;$out/tools;$opencvJar;$junitJar"
     Write-Host '== Running tests'
-    & java -jar $junitJar execute --class-path "$out/core;$out/test;$out/onnx;$out/onnx-test;$opencvJar;$onnxJar" --scan-class-path --disable-banner --details=tree
+    & java -jar $junitJar execute --class-path "$out/core;$out/test;$out/onnx;$out/onnx-test;$out/camera;$out/tools;$out/tools-test;$opencvJar;$onnxJar" --scan-class-path --disable-banner --details=tree
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
 }
-
-Write-Host '== Compiling liveness-tools (evaluation, interop, model packages)'
-Compile "$root/liveness-tools/src/main/java" "$out/tools" "$out/core;$out/camera;$out/onnx;$opencvJar;$onnxJar"
 
 if ($Tool) {
     & java -cp "$out/core;$out/camera;$out/onnx;$out/tools;$opencvJar;$onnxJar" io.mosip.registration.liveness.tools.LivenessTools ($Tool -split ' ')
@@ -103,6 +105,6 @@ if ($Run) {
         & java -cp "$out/core;$out/demo" io.mosip.registration.liveness.demo.LivenessDemoApp
     } else {
         Write-Host '== Launching LIVE webcam capture and face liveness verification'
-        & java -cp "$out/core;$out/camera;$out/onnx;$out/live;$opencvJar;$onnxJar" io.mosip.registration.liveness.live.LiveCaptureApp
+        & java "-Dmosip.liveness.device=$Device" -cp "$out/core;$out/camera;$out/onnx;$out/live;$opencvJar;$onnxJar" io.mosip.registration.liveness.live.LiveCaptureApp
     }
 }

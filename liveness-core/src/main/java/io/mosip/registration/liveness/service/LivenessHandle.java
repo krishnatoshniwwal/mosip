@@ -74,6 +74,12 @@ public final class LivenessHandle {
     }
 
     void begin() {
+        // Schedule the ticker before the start task: a session can end inside start (no consent, locked out),
+        // and afterStep() then shuts the ticker down. Ticks before start are ignored by the session.
+        ticker.scheduleAtFixedRate(() -> submit(() -> {
+            session.onTick(clock.getAsLong());
+            afterStep();
+        }), TICK_MS, TICK_MS, TimeUnit.MILLISECONDS);
         submit(() -> {
             session.start(clock.getAsLong());
             // Never touch the camera for a session that ended at start (no consent, locked out).
@@ -82,10 +88,6 @@ public final class LivenessHandle {
             }
             afterStep();
         });
-        ticker.scheduleAtFixedRate(() -> submit(() -> {
-            session.onTick(clock.getAsLong());
-            afterStep();
-        }), TICK_MS, TICK_MS, TimeUnit.MILLISECONDS);
     }
 
     public String getSessionId() {

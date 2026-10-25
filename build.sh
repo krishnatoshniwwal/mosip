@@ -4,6 +4,7 @@
 #   ./build.sh --skip-tests
 #   ./build.sh --run       compile, test, then launch live webcam capture
 #   ./build.sh --run --sim compile, test, then launch simulated mock demo
+#   ./build.sh --run --device=sbi:auto   live capture from the MOSIP SBI face device
 #   ./build.sh tool evaluate|interop|models ...   compile, then run a command-line tool (no tests)
 # Maven users: mvn verify  (see pom.xml)
 set -euo pipefail
@@ -22,13 +23,14 @@ YUNET_SHA256=8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
 SEP=':'
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) SEP=';' ;; esac
 
-RUN=0; SIM=0; SKIP_TESTS=0; TOOL=0; TOOL_ARGS=()
+RUN=0; SIM=0; SKIP_TESTS=0; TOOL=0; TOOL_ARGS=(); DEVICE=webcam:0
 if [ "${1:-}" = "tool" ]; then
   shift; TOOL=1; TOOL_ARGS=("$@"); set -- --skip-tests
 fi
 for arg in "$@"; do
   case "$arg" in
     --run) RUN=1 ;;
+    --device=*) DEVICE="${arg#--device=}" ;;
     --sim) SIM=1 ;;
     --skip-tests) SKIP_TESTS=1 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
@@ -86,8 +88,9 @@ if [ "$SKIP_TESTS" -eq 0 ]; then
   echo "== Compiling tests"
   compile "$ROOT/liveness-core/src/test/java" "$OUT/test" "$OUT/core$SEP$JUNIT_JAR"
   compile "$ROOT/liveness-onnx-engine/src/test/java" "$OUT/onnx-test" "$OUT/core$SEP$OUT/onnx$SEP$OPENCV_JAR$SEP$ONNX_JAR$SEP$JUNIT_JAR"
+  compile "$ROOT/liveness-tools/src/test/java" "$OUT/tools-test" "$OUT/core$SEP$OUT/camera$SEP$OUT/tools$SEP$OPENCV_JAR$SEP$JUNIT_JAR"
   echo "== Running tests"
-  java -jar "$JUNIT_JAR" execute --class-path "$OUT/core$SEP$OUT/test$SEP$OUT/onnx$SEP$OUT/onnx-test$SEP$OPENCV_JAR$SEP$ONNX_JAR" --scan-class-path --disable-banner --details=tree
+  java -jar "$JUNIT_JAR" execute --class-path "$OUT/core$SEP$OUT/test$SEP$OUT/onnx$SEP$OUT/onnx-test$SEP$OUT/camera$SEP$OUT/tools$SEP$OUT/tools-test$SEP$OPENCV_JAR$SEP$ONNX_JAR" --scan-class-path --disable-banner --details=tree
 fi
 
 if [ "$RUN" -eq 1 ]; then
@@ -96,7 +99,7 @@ if [ "$RUN" -eq 1 ]; then
     java -cp "$OUT/core$SEP$OUT/demo" io.mosip.registration.liveness.demo.LivenessDemoApp
   else
     echo "== Launching LIVE webcam capture and face liveness verification"
-    java -cp "$OUT/core$SEP$OUT/camera$SEP$OUT/onnx$SEP$OUT/live$SEP$OPENCV_JAR$SEP$ONNX_JAR" io.mosip.registration.liveness.live.LiveCaptureApp
+    java "-Dmosip.liveness.device=$DEVICE" -cp "$OUT/core$SEP$OUT/camera$SEP$OUT/onnx$SEP$OUT/live$SEP$OPENCV_JAR$SEP$ONNX_JAR" io.mosip.registration.liveness.live.LiveCaptureApp
   fi
 fi
 

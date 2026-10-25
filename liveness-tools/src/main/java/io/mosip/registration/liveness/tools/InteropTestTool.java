@@ -1,16 +1,14 @@
 package io.mosip.registration.liveness.tools;
 
-import io.mosip.registration.liveness.camera.OpenCvCameraDevice;
+import io.mosip.registration.liveness.camera.DeviceSelector;
 import io.mosip.registration.liveness.camera.OpenCvLoader;
 import io.mosip.registration.liveness.conformance.ConformanceReport;
 import io.mosip.registration.liveness.conformance.DeviceConformanceSuite;
 import io.mosip.registration.liveness.conformance.EngineBenchmark;
-import io.mosip.registration.liveness.device.DeviceInfo;
+import io.mosip.registration.liveness.device.DeviceException;
 import io.mosip.registration.liveness.device.DeviceLevel;
 import io.mosip.registration.liveness.device.FaceCaptureDevice;
 import io.mosip.registration.liveness.device.FaceFrame;
-import io.mosip.registration.liveness.device.PixelFormat;
-import io.mosip.registration.liveness.device.sbi.SbiFaceStreamDevice;
 import io.mosip.registration.liveness.engine.LivenessEngine;
 import io.mosip.registration.liveness.mock.MockFaceDevice;
 import io.mosip.registration.liveness.mock.SimulatedLivenessEngine;
@@ -27,7 +25,6 @@ import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Random;
 
@@ -38,7 +35,7 @@ import java.util.Random;
  *
  * <pre>
  * --device webcam:0                 OpenCV camera (index)
- * --device sbi:127.0.0.1:4501[:1]   MOSIP SBI face stream (host, port, device sub-id)
+ * --device sbi:auto | sbi:127.0.0.1:4501[:0]   MOSIP SBI face device, found by discovery (port, sub-id)
  * --device mock                     mock L1 device (development)
  * --disconnect manual               asks you to unplug the device mid-test, then plug it back in
  * --disconnect auto                 (mock only) simulates the disconnect
@@ -74,19 +71,15 @@ final class InteropTestTool {
             OpenCvLoader.ensureLoaded();
             engine = new OnnxLivenessEngine(OnnxLivenessEngine.defaultModelDir());
             nominalFps = 15;
-            if (spec.startsWith("webcam:")) {
-                device = new OpenCvCameraDevice(Integer.parseInt(spec.substring("webcam:".length())), 15);
-            } else if (spec.startsWith("sbi:")) {
-                String[] p = spec.split(":");
-                DeviceInfo info = new DeviceInfo("SBI-FACE", "SBI", "Face stream " + p[1] + ":" + p[2], "unknown",
-                        DeviceLevel.L1, "unknown", EnumSet.of(PixelFormat.JPEG));
-                device = new SbiFaceStreamDevice(p[1], Integer.parseInt(p[2]), p.length > 3 ? p[3] : "1", info);
-            } else {
-                System.err.println("Unknown --device '" + spec + "'. Use one of:\n"
-                        + "  webcam:<index>              e.g. webcam:0\n"
-                        + "  sbi:<host>:<port>[:<subId>] e.g. sbi:127.0.0.1:4501\n"
-                        + "  mock");
+            try {
+                // SBI devices are found by discovery, which also reports their real L0/L1 level and sub-IDs.
+                device = DeviceSelector.create(spec, 15);
+            } catch (IllegalArgumentException e) {
+                System.err.println(e.getMessage() + "\n  mock");
                 return 2;
+            } catch (DeviceException e) {
+                System.err.println(e.getMessage());
+                return 3;
             }
         }
         if (!spec.equals("mock") && !Arrays.asList(a).contains("--yes") && !askPermission(spec)) {

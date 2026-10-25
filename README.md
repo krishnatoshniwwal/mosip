@@ -31,7 +31,7 @@ in behind interfaces, so no vendor is hard-wired.
 | MiniFASNet anti-spoofing (2-model ONNX ensemble, matches upstream output exactly) | |
 | Liveness state machine: passive, PAD, random challenges, retries, failure actions | Wiring into the JavaFX Registration Client screens |
 | Per-workflow configuration with strict validation | Android adapter + Flutter screen |
-| SBI `STREAM /stream` (MJPEG) device adapter | Signed model updates |
+| SBI device discovery + `STREAM /stream` adapter, tested against the MOSIP mock SBI | A passing session on real L0/L1 hardware |
 | Mock L0/L1 device + simulated subject and engine (live, photo, screen, replay, …) | |
 | Audit events (no biometric data) and anonymous metrics | |
 | Reference capture UI (Swing) with diagnostic mode | |
@@ -51,9 +51,10 @@ Needs JDK 11+. No Maven required: the scripts download JUnit, OpenCV, ONNX Runti
 `-Dmosip.liveness.models=<dir>` at a folder containing `face_detection_yunet_2023mar.onnx`.
 
 ```powershell
-.\build.ps1          # compile + 143 tests
+.\build.ps1          # compile + 161 tests
 .\build.ps1 -Run     # launch LIVE webcam capture & real liveness
 .\build.ps1 -Run -Sim # launch simulated desktop demo (mock device)
+.\build.ps1 -Run -Device sbi:auto   # live capture from an SBI face device (MDS on 127.0.0.1:4501-4600)
 ```
 ```bash
 ./build.sh --run     # macOS / Linux / Git Bash
@@ -69,12 +70,15 @@ translated prompts. The demo reads `config/liveness.properties`.
 ## Tools
 
 ```bash
+# Record the evaluation dataset with the webcam (one clip per click, written in the layout evaluate reads)
+./build.sh tool record dataset --device webcam:0 --seconds 5
+
 # ISO/IEC 30107-3 PAD evaluation: dataset/bona_fide/..., dataset/attack/<species>/... (images, videos)
-./build.sh tool evaluate path/to/dataset --out pad-evaluation --passive-threshold 70
+./build.sh tool evaluate dataset --out pad-evaluation --passive-threshold 70
 
 # Device interoperability + engine performance (writes interop-report.md)
 ./build.sh tool interop --device webcam:0 --disconnect manual   # asks before turning the camera on; --yes for CI
-./build.sh tool interop --device sbi:127.0.0.1:4501
+./build.sh tool interop --device sbi:auto        # or sbi:127.0.0.1:4501[:subId]
 
 # Signed model packages (release side: keygen, sign; client side: install, status, rollback)
 ./build.sh tool models keygen release-private.pem release-public.pem
@@ -85,13 +89,42 @@ translated prompts. The demo reads `config/liveness.properties`.
 On Windows: `.\build.ps1 -Tool "interop --device webcam:0"`. The live demo runs only on a verified package
 when started with `-Dmosip.liveness.modelRepo=<repo> -Dmosip.liveness.trustedKey=<public.pem>`.
 
+### Testing with the MOSIP mock SBI
+
+The SBI path can be tested without hardware, using MOSIP's own mock device service:
+
+```bash
+git clone https://github.com/mosip/mosip-mock-services.git      # on Windows: git config core.longpaths true
+cd mosip-mock-services/MockMDS && mvn clean install -Dmaven.test.skip=true -Dgpg.skip=true
+cd target && java -cp "mock-mds-<version>.jar;lib/*" io.mosip.mock.sbi.test.TestMockSBI \
+    "mosip.mock.sbi.device.purpose=Registration" "mosip.mock.sbi.biometric.type=Biometric Device"   # ':' on Linux/macOS
+```
+
+Then run `.\build.ps1 -Tool "interop --device sbi:auto --yes"` (conformance report) or `.\build.ps1 -Run -Device sbi:auto`.
+The mock streams an annotated still photo, so the live app correctly rejects it as a presentation attack. This
+tests the integration, not a passing session.
+
+### Collecting the evaluation dataset
+
+1. Get each participant's written consent first. Give them a pseudonymous ID (`S01`, `S02`, …) and never
+   record names. The recorder only enables **Record** after you confirm consent, and asks again when the ID changes.
+2. Run `.\build.ps1 -Tool "record dataset"`. For each participant, record several clips of each kind:
+   - **Live person:** vary distance, lighting and glasses.
+   - **Printed photo**, **photo on a screen**, **video replay** of that participant (masks optional).
+
+   The window shows instructions for each kind and how many clips you have so far.
+3. Clips land in `dataset/bona_fide/<ID>/` and `dataset/attack/<kind>/<ID>/`, with a log in `dataset/recordings.csv`.
+   `dataset/` and `pad-evaluation/` are git-ignored: the clips are biometric data, so never commit or share them,
+   and delete them when the evaluation is done.
+4. Run `.\build.ps1 -Tool "evaluate dataset"` and read `pad-evaluation/report.md` to choose thresholds.
+
 ## Layout
 
 ```
 liveness-core/                       pure Java 11 library, zero dependencies (Desktop + Android)
   config/      LivenessConfig, LivenessPolicy, FailureAction
   device/      FaceCaptureDevice, FaceFrame, PixelFormat, DeviceInfo   (device adapter pattern)
-  device/sbi/  SbiFaceStreamDevice, MjpegStreamReader                  (MOSIP SBI stream)
+  device/sbi/  SbiDiscovery, SbiFaceStreamDevice, MjpegStreamReader    (MOSIP SBI discovery + stream)
   engine/      LivenessEngine, FrameAnalysis, FaceObservation, PadResult (liveness/PAD interface)
   challenge/   ChallengeSelector (SecureRandom), blink/smile/head-pose detectors
   session/     LivenessSession state machine, UserMessage, FailureReason, LivenessResult
@@ -103,7 +136,7 @@ liveness-core/                       pure Java 11 library, zero dependencies (De
   evaluation/  PadMetrics, PadEvaluation                                (ISO/IEC 30107-3 metrics + report)
   conformance/ DeviceConformanceSuite, EngineBenchmark                  (interop + performance tests)
 liveness-onnx-engine/                YuNet + MiniFASNet engine, ReplayAttackDetector, OcclusionAnalyzer
-liveness-tools/                      CLI: evaluate, interop, models
+liveness-tools/                      CLI: record, evaluate, interop, models
 liveness-desktop-demo/               reference face capture screen (Swing)
 config/liveness.properties           sample per-workflow policy
 docs/DESIGN.md                       technical design: architecture, flows, config, errors, security, ISO 30107
