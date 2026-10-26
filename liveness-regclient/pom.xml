@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.mosip.registration</groupId>
+        <artifactId>face-liveness-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>liveness-regclient</artifactId>
+    <name>Face liveness - Registration Client integration</name>
+    <description>Desktop Registration Client integration: MDS stream adapter, config from the synced global parameters,
+        audit into AuditManagerService, and the JavaFX face capture dialog used by resident capture, operator login
+        and supervisor authentication. The demo package is a stand-in for the client screens.</description>
+
+    <properties>
+        <javafx.version>17.0.10</javafx.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.mosip.registration</groupId>
+            <artifactId>liveness-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- The Registration Client already ships JavaFX; inside it, these can be provided scope. -->
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-controls</artifactId>
+            <version>${javafx.version}</version>
+        </dependency>
+        <!-- Only the demo package (stand-in client screens with a webcam or SBI device) needs these. -->
+        <dependency>
+            <groupId>io.mosip.registration</groupId>
+            <artifactId>liveness-camera</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.mosip.registration</groupId>
+            <artifactId>liveness-onnx-engine</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- test -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>io.mosip.registration.liveness.regclient.demo.RegClientDemo</mainClass>
+                            <addClasspath>true</addClasspath>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

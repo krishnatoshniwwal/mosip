@@ -17,7 +17,13 @@ public enum AuditEventType {
     OCCLUSION_FALLBACK("REG-LIV-013"),
     RATE_LIMIT_LOCKOUT("REG-LIV-014"),
     CONSENT_GRANTED("REG-LIV-015"),
-    CONSENT_NOT_GIVEN("REG-LIV-016");
+    CONSENT_NOT_GIVEN("REG-LIV-016"),
+    /** The device capture after a passed session completed with the verified person still in view. */
+    CAPTURE_BOUND("REG-LIV-017"),
+    /** The person in view changed, left, or turned into an attack while the device capture ran. */
+    CAPTURE_BINDING_BROKEN("REG-LIV-018"),
+    /** The device capture itself failed or timed out. */
+    CAPTURE_FAILED("REG-LIV-019");
 
     private final String code;
 

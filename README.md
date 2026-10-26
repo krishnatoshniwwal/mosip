@@ -30,14 +30,16 @@ in behind interfaces, so no vendor is hard-wired.
 | Device interoperability conformance suite + engine performance benchmark | Running it on each supported vendor device |
 | Live webcam engine: YuNet face detection + landmark head pose (turn left/right challenges) | Threshold calibration on recorded live/spoof sessions |
 | MiniFASNet anti-spoofing (2-model ONNX ensemble, matches upstream output exactly) | |
-| Liveness state machine: passive, PAD, random challenges, retries, failure actions | Wiring into the JavaFX Registration Client screens |
+| Liveness state machine: passive, PAD, random challenges, retries, failure actions | Applying the controller changes in `mosip/registration-client` ([guide](docs/REGCLIENT_INTEGRATION.md)) |
+| Desktop Registration Client integration (`liveness-regclient`): JavaFX capture dialog for resident capture, operator login and supervisor auth; MDS stream adapter; config from synced global params; audit into `AuditManagerService` | |
+| Capture binding: liveness gates the MDS rCapture / face match and watches the stream until it returns | |
 | Per-workflow configuration with strict validation | Android adapter + Flutter screen |
 | SBI device discovery + `STREAM /stream` adapter, tested against the MOSIP mock SBI | A passing session on real L0/L1 hardware |
 | Mock L0/L1 device + simulated subject and engine (live, photo, screen, replay, …) | |
 | Audit events (no biometric data) and anonymous metrics | |
 | Reference capture UI (Swing) with diagnostic mode | |
 | Explicit camera consent before the device is opened (enforced by the service, audited, translated) | |
-| 143 automated tests | |
+| 191 automated tests | |
 
 The live engine (`liveness-onnx-engine`) detects faces with OpenCV's YuNet model and measures head turns
 from its five landmarks. Smile comes from the MediaPipe Face Mesh model and blink from the MediaPipe Iris
@@ -54,10 +56,12 @@ Needs JDK 11+. No Maven required: the scripts download JUnit, OpenCV, ONNX Runti
 `-Dmosip.liveness.models=<dir>` at a folder containing `face_detection_yunet_2023mar.onnx`.
 
 ```powershell
-.\build.ps1          # compile + 161 tests
+.\build.ps1          # compile + 191 tests
 .\build.ps1 -Run     # launch LIVE webcam capture & real liveness
 .\build.ps1 -Run -Sim # launch simulated desktop demo (mock device)
 .\build.ps1 -Run -Device sbi:auto   # live capture from an SBI face device (MDS on 127.0.0.1:4501-4600)
+.\build.ps1 -Run -RegClient        # Registration Client screens (operator login, resident face, supervisor) with liveness
+.\build.ps1 -Run -RegClient -Sim   # the same with the mock device; try a photo swapped in during the capture
 ```
 ```bash
 ./build.sh --run     # macOS / Linux / Git Bash
@@ -138,11 +142,14 @@ liveness-core/                       pure Java 11 library, zero dependencies (De
   model/       ModelPackageVerifier, ModelRepository, ModelSigning      (signed model packages)
   evaluation/  PadMetrics, PadEvaluation                                (ISO/IEC 30107-3 metrics + report)
   conformance/ DeviceConformanceSuite, EngineBenchmark                  (interop + performance tests)
+  gate/        LivenessGate, GateResult                                 (liveness before the client's own capture)
 liveness-onnx-engine/                YuNet + MiniFASNet engine, ReplayAttackDetector, OcclusionAnalyzer
 liveness-tools/                      CLI: record, evaluate, interop, models
 liveness-desktop-demo/               reference face capture screen (Swing)
+liveness-regclient/                  Desktop Registration Client integration: JavaFX dialog, MDS stream, config, audit
 config/liveness.properties           sample per-workflow policy
 docs/DESIGN.md                       technical design: architecture, flows, config, errors, security, ISO 30107
+docs/REGCLIENT_INTEGRATION.md        controller-by-controller changes for mosip/registration-client
 ```
 
 ## Using it from a workflow

@@ -17,6 +17,7 @@
         <module>liveness-desktop-demo</module>
         <module>liveness-live-demo</module>
         <module>liveness-tools</module>
+        <module>liveness-regclient</module>
     </modules>
 
     <properties>

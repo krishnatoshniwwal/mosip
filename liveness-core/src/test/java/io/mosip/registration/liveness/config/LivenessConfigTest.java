@@ -88,6 +88,23 @@ class LivenessConfigTest {
         assertThrows(ConfigException.class, () -> LivenessConfig.fromProperties(props));
     }
 
+    @Test
+    void captureBindingIsOnByDefaultAndConfigurablePerWorkflow() {
+        assertTrue(LivenessConfig.defaults().policyFor(LivenessWorkflow.RESIDENT_REGISTRATION).isCaptureBindEnabled());
+
+        Properties props = new Properties();
+        props.setProperty(P + "capture.bind.timeoutMs", "15000");
+        props.setProperty(P + "operator.capture.bind.maxFaceShift", "0.15");
+        LivenessConfig config = LivenessConfig.fromProperties(props);
+        LivenessPolicy operator = config.policyFor(LivenessWorkflow.OPERATOR_AUTHENTICATION);
+        assertEquals(15000, operator.getCaptureBindTimeoutMs());
+        assertEquals(0.15f, operator.getCaptureBindMaxFaceShift(), 1e-6);
+        assertEquals(0.25f, config.policyFor(LivenessWorkflow.RESIDENT_REGISTRATION).getCaptureBindMaxFaceShift(), 1e-6);
+
+        assertInvalid(P + "capture.bind.timeoutMs", "0");
+        assertInvalid(P + "capture.bind.maxFaceShift", "1.5");
+    }
+
     private static void assertInvalid(String key, String value) {
         Properties props = new Properties();
         props.setProperty(key, value);

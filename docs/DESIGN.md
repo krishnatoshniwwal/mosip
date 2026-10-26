@@ -247,10 +247,12 @@ sequenceDiagram
 
 Integration points in the Registration Client:
 
-- **Desktop (JavaFX):** wrap `FaceLivenessService` in a Spring bean. Use it from the existing face capture
-  and biometric login/authentication controllers in place of the single-shot face capture. Marshal
-  `LivenessListener` callbacks with `Platform.runLater`. Map `AuditSink` onto the existing audit manager so
-  the events go out with the normal audit sync.
+- **Desktop (JavaFX):** `liveness-regclient` provides a `RegClientLiveness` Spring bean, an `MdsStreamDevice`
+  over the client's own `bioService.getStream(...)`, configuration from `ApplicationContext.map()`, an audit
+  sink for `AuditManagerService`, and the `LivenessCaptureDialog` all three screens open. The client stores the
+  MDS-signed rCapture rather than a preview frame, so `LivenessGate` runs liveness first, then the screen's own
+  capture step, and keeps watching the stream until it returns (`capture.bind.*`). See
+  [REGCLIENT_INTEGRATION.md](REGCLIENT_INTEGRATION.md) for the controller changes.
 - **Localisation:** `LivenessMessages.forLanguage(code)` accepts the client's ISO 639-3 language codes
   (`eng`, `fra`, `ara`, …) and returns every prompt, status, failure and UI label in that language. It
   also reports whether the layout is right-to-left (Arabic). Bundles: English, French, Arabic, Hindi,
@@ -440,6 +442,6 @@ the frame; mask or sunglasses; cooperative / unresponsive / wrong action) is the
 |---|---|
 | **v0.1 (this)** | Core orchestration, config, audit/metrics, SBI stream adapter, mock device + simulated engine, reference UI, tests |
 | v0.2 | Real on-device engine: face landmarks (eye openness, smile, pose) + passive anti-spoof CNN via ONNX Runtime (desktop) / TFLite (Android); calibration of thresholds |
-| v0.3 | JavaFX integration in the Desktop client (resident capture, operator/supervisor auth); MDS device discovery |
+| v0.3 | ~~JavaFX integration in the Desktop client (resident capture, operator/supervisor auth)~~ (done: `liveness-regclient`, capture binding); ~~MDS device discovery~~ (done); apply the controller changes in `mosip/registration-client` |
 | v0.4 | Android adapter (CameraX/vendor SDK), Flutter UI, low-resource optimisations (frame skipping, NNAPI/GPU delegate) |
 | v0.5 | ~~Signed model packages + version management~~ (done), ~~ISO/IEC 30107-3 evaluation harness~~ (done); evaluation report on collected device data |

@@ -61,6 +61,9 @@ public final class LivenessMessages {
     public static final String UI_CONSENT_TEXT = "liveness.ui.consentText";
     public static final String UI_ALLOW = "liveness.ui.allow";
     public static final String UI_DENY = "liveness.ui.deny";
+    public static final String UI_CLOSE = "liveness.ui.close";
+    /** Shown on the capture screen: liveness runs locally, so it is enforced the same online and offline. */
+    public static final String UI_ON_DEVICE = "liveness.ui.onDevice";
     /** Bump whenever the consent notice wording changes in any language; recorded with every consent. */
     public static final String CONSENT_NOTICE_VERSION = "camera-notice-v1";
 
@@ -84,6 +87,8 @@ public final class LivenessMessages {
                 + "liveness check. Do you allow the camera to be used?");
         UI_ENGLISH.put(UI_ALLOW, "Allow");
         UI_ENGLISH.put(UI_DENY, "Don't allow");
+        UI_ENGLISH.put(UI_CLOSE, "Close");
+        UI_ENGLISH.put(UI_ON_DEVICE, "Checked on this device · works offline");
 
         // MOSIP configures languages with ISO 639-3 codes (mosip.mandatory-languages=eng,ara,fra ...).
         MOSIP_CODES.put("eng", "en");

@@ -43,6 +43,9 @@ public final class LivenessPolicy {
     private final long rateLimitLockoutMs;
     private final boolean consentRequired;
     private final long consentMaxAgeMs;
+    private final boolean captureBindEnabled;
+    private final long captureBindTimeoutMs;
+    private final float captureBindMaxFaceShift;
 
     private LivenessPolicy(Builder b) {
         enabled = b.enabled;
@@ -75,6 +78,9 @@ public final class LivenessPolicy {
         rateLimitLockoutMs = b.rateLimitLockoutMs;
         consentRequired = b.consentRequired;
         consentMaxAgeMs = b.consentMaxAgeMs;
+        captureBindEnabled = b.captureBindEnabled;
+        captureBindTimeoutMs = b.captureBindTimeoutMs;
+        captureBindMaxFaceShift = b.captureBindMaxFaceShift;
     }
 
     public static Builder builder() {
@@ -111,7 +117,10 @@ public final class LivenessPolicy {
                 .rateLimitWindowMs(rateLimitWindowMs)
                 .rateLimitLockoutMs(rateLimitLockoutMs)
                 .consentRequired(consentRequired)
-                .consentMaxAgeMs(consentMaxAgeMs);
+                .consentMaxAgeMs(consentMaxAgeMs)
+                .captureBindEnabled(captureBindEnabled)
+                .captureBindTimeoutMs(captureBindTimeoutMs)
+                .captureBindMaxFaceShift(captureBindMaxFaceShift);
     }
 
     /** Master switch. When false, faces are captured without liveness or PAD checks. */
@@ -165,6 +174,15 @@ public final class LivenessPolicy {
     public boolean isConsentRequired() { return consentRequired; }
     /** How old a consent may be when the session starts; an older one must be asked for again. */
     public long getConsentMaxAgeMs() { return consentMaxAgeMs; }
+    /**
+     * Whether the device capture that follows a passed session (MDS rCapture, face match) must be watched:
+     * the stream stays open and the same face must stay in view, alone and bona fide, until it returns.
+     */
+    public boolean isCaptureBindEnabled() { return captureBindEnabled; }
+    /** Longest the bound capture may take before it is abandoned. */
+    public long getCaptureBindTimeoutMs() { return captureBindTimeoutMs; }
+    /** Largest move of the face centre (fraction of the frame) from the verified face during the capture. */
+    public float getCaptureBindMaxFaceShift() { return captureBindMaxFaceShift; }
 
     /** Compact, non-sensitive description for audit records. */
     public String summary() {
@@ -221,6 +239,9 @@ public final class LivenessPolicy {
         private long rateLimitLockoutMs = 900_000;
         private boolean consentRequired = true;
         private long consentMaxAgeMs = 300_000;
+        private boolean captureBindEnabled = true;
+        private long captureBindTimeoutMs = 20_000;
+        private float captureBindMaxFaceShift = 0.25f;
 
         private Builder() {
         }
@@ -272,6 +293,9 @@ public final class LivenessPolicy {
         public Builder rateLimitLockoutMs(long v) { rateLimitLockoutMs = v; return this; }
         public Builder consentRequired(boolean v) { consentRequired = v; return this; }
         public Builder consentMaxAgeMs(long v) { consentMaxAgeMs = v; return this; }
+        public Builder captureBindEnabled(boolean v) { captureBindEnabled = v; return this; }
+        public Builder captureBindTimeoutMs(long v) { captureBindTimeoutMs = v; return this; }
+        public Builder captureBindMaxFaceShift(float v) { captureBindMaxFaceShift = v; return this; }
 
         /** @throws IllegalArgumentException if the combination of values is invalid */
         public LivenessPolicy build() {
@@ -290,6 +314,9 @@ public final class LivenessPolicy {
             require(!activeAlways || activeEnabled, "active.always requires active.enabled=true");
             require(occlusionGraceMs >= 0, "occlusion.graceMs must not be negative");
             require(consentMaxAgeMs > 0, "consent.maxAgeMs must be positive");
+            require(captureBindTimeoutMs > 0, "capture.bind.timeoutMs must be positive");
+            require(captureBindMaxFaceShift > 0 && captureBindMaxFaceShift <= 1,
+                    "capture.bind.maxFaceShift must be in (0, 1]");
             if (rateLimitEnabled) {
                 require(rateLimitMaxFailures >= 1, "rateLimit.maxFailures must be at least 1");
                 require(rateLimitWindowMs > 0, "rateLimit.windowMs must be positive");

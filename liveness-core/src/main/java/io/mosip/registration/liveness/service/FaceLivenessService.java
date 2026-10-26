@@ -113,11 +113,16 @@ public final class FaceLivenessService {
         };
         LivenessSession session = new LivenessSession(UUID.randomUUID().toString(), workflow,
                 config.policyFor(workflow), engine.info(), selector, audit, metrics, recording,
-                rateLimiter, workflow.configKey() + ":" + (subjectKey == null ? "*station*" : subjectKey));
+                rateLimiter, rateLimitKey(workflow, subjectKey));
         session.setCameraConsent(consent);
         LivenessHandle handle = new LivenessHandle(session, device, engine, metrics, clock, recording, finished);
         handle.begin();
         return handle;
+    }
+
+    /** The key failed attempts are counted under in {@link #rateLimiter()}. */
+    public static String rateLimitKey(LivenessWorkflow workflow, String subjectKey) {
+        return workflow.configKey() + ":" + (subjectKey == null ? "*station*" : subjectKey);
     }
 
     public AttemptRateLimiter rateLimiter() {

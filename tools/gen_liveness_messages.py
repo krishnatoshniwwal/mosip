@@ -51,6 +51,8 @@ KEYS = [
     "liveness.ui.consentText",
     "liveness.ui.allow",
     "liveness.ui.deny",
+    "liveness.ui.close",
+    "liveness.ui.onDevice",
 ]
 # UI patterns with {n} arguments go through java.text.MessageFormat: apostrophes must be doubled.
 FORMATTED = {"liveness.ui.attempt", "liveness.ui.challenge", "liveness.ui.timeLeft", "liveness.ui.lockedUntil"}
@@ -103,6 +105,8 @@ T["fr"] = ("Français", [
     "Pour capturer votre visage et confirmer que vous êtes présent en personne, cette application doit allumer la caméra. Les images sont traitées sur cet appareil et ne sont envoyées nulle part pour la vérification de vivacité. Autorisez-vous l'utilisation de la caméra ?",
     "Autoriser",
     "Ne pas autoriser",
+    "Fermer",
+    "Vérifié sur cet appareil · fonctionne hors ligne",
 ])
 
 T["ar"] = ("العربية", [
@@ -151,6 +155,8 @@ T["ar"] = ("العربية", [
     "لالتقاط صورة وجهك والتأكد من حضورك شخصيًا، يحتاج هذا التطبيق إلى تشغيل الكاميرا. تتم معالجة الصور على هذا الجهاز ولا تُرسل إلى أي مكان للتحقق من الحيوية. هل تسمح باستخدام الكاميرا؟",
     "سماح",
     "عدم السماح",
+    "إغلاق",
+    "يتم التحقق على هذا الجهاز · يعمل دون اتصال",
 ])
 
 T["hi"] = ("हिन्दी", [
@@ -199,6 +205,8 @@ T["hi"] = ("हिन्दी", [
     "आपका चेहरा कैप्चर करने और यह पुष्टि करने के लिए कि आप स्वयं उपस्थित हैं, इस एप्लिकेशन को कैमरा चालू करना होगा। तस्वीरें इसी डिवाइस पर संसाधित होती हैं और सजीवता जाँच के लिए कहीं नहीं भेजी जातीं। क्या आप कैमरे के उपयोग की अनुमति देते हैं?",
     "अनुमति दें",
     "अनुमति न दें",
+    "बंद करें",
+    "इसी डिवाइस पर जाँचा जाता है · ऑफ़लाइन भी काम करता है",
 ])
 
 T["kn"] = ("ಕನ್ನಡ", [
@@ -247,6 +255,8 @@ T["kn"] = ("ಕನ್ನಡ", [
     "ನಿಮ್ಮ ಮುಖವನ್ನು ಸೆರೆಹಿಡಿಯಲು ಮತ್ತು ನೀವು ಖುದ್ದಾಗಿ ಹಾಜರಿದ್ದೀರಿ ಎಂದು ಖಚಿತಪಡಿಸಲು, ಈ ಅಪ್ಲಿಕೇಶನ್ ಕ್ಯಾಮೆರಾವನ್ನು ಆನ್ ಮಾಡಬೇಕಾಗುತ್ತದೆ. ಚಿತ್ರಗಳನ್ನು ಈ ಸಾಧನದಲ್ಲೇ ಸಂಸ್ಕರಿಸಲಾಗುತ್ತದೆ ಮತ್ತು ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆಗಾಗಿ ಎಲ್ಲಿಗೂ ಕಳುಹಿಸಲಾಗುವುದಿಲ್ಲ. ಕ್ಯಾಮೆರಾ ಬಳಸಲು ನೀವು ಅನುಮತಿಸುತ್ತೀರಾ?",
     "ಅನುಮತಿಸಿ",
     "ಅನುಮತಿಸಬೇಡಿ",
+    "ಮುಚ್ಚಿ",
+    "ಈ ಸಾಧನದಲ್ಲೇ ಪರಿಶೀಲಿಸಲಾಗುತ್ತದೆ · ಆಫ್‌ಲೈನ್‌ನಲ್ಲೂ ಕಾರ್ಯನಿರ್ವಹಿಸುತ್ತದೆ",
 ])
 
 T["ta"] = ("தமிழ்", [
@@ -295,6 +305,8 @@ T["ta"] = ("தமிழ்", [
     "உங்கள் முகத்தைப் பதிவு செய்யவும் நீங்கள் நேரில் இருப்பதை உறுதிசெய்யவும் இந்தப் பயன்பாடு கேமராவை இயக்க வேண்டும். படங்கள் இந்தச் சாதனத்திலேயே செயலாக்கப்படுகின்றன; உயிர்த்தன்மைச் சரிபார்ப்புக்காக எங்கும் அனுப்பப்படுவதில்லை. கேமராவைப் பயன்படுத்த அனுமதிக்கிறீர்களா?",
     "அனுமதி",
     "அனுமதிக்க வேண்டாம்",
+    "மூடு",
+    "இந்தச் சாதனத்திலேயே சரிபார்க்கப்படுகிறது · இணையம் இல்லாமலும் செயல்படும்",
 ])
 
 T["fil"] = ("Filipino", [
@@ -343,6 +355,8 @@ T["fil"] = ("Filipino", [
     "Para makuha ang iyong mukha at makumpirmang personal kang naroroon, kailangang buksan ng application na ito ang camera. Pinoproseso ang mga larawan sa device na ito at hindi ipinapadala kahit saan para sa pagsusuri. Pinapayagan mo bang gamitin ang camera?",
     "Payagan",
     "Huwag payagan",
+    "Isara",
+    "Sinusuri sa device na ito · gumagana kahit offline",
 ])
 
 T["am"] = ("አማርኛ", [
@@ -391,6 +405,8 @@ T["am"] = ("አማርኛ", [
     "ፊትዎን ለመያዝ እና በአካል መገኘትዎን ለማረጋገጥ ይህ መተግበሪያ ካሜራውን ማብራት ያስፈልገዋል። ምስሎቹ በዚህ መሣሪያ ላይ ይሰራሉ፤ ለሕያውነት ማረጋገጫ ወደ የትም አይላኩም። ካሜራውን ለመጠቀም ይፈቅዳሉ?",
     "ፍቀድ",
     "አትፍቀድ",
+    "ዝጋ",
+    "በዚህ መሣሪያ ላይ ይረጋገጣል · ያለ ኢንተርኔት ይሠራል",
 ])
 
 T["si"] = ("සිංහල", [
@@ -439,6 +455,8 @@ T["si"] = ("සිංහල", [
     "ඔබේ මුහුණ ග්‍රහණය කිරීමට සහ ඔබ පුද්ගලිකව සිටින බව තහවුරු කිරීමට, මෙම යෙදුමට කැමරාව ක්‍රියාත්මක කිරීමට අවශ්‍ය වේ. රූප මෙම උපාංගයේම සකසනු ලබන අතර සජීවීභාව පරීක්ෂාව සඳහා කොතැනකටවත් යවනු නොලැබේ. කැමරාව භාවිත කිරීමට ඔබ අවසර දෙනවාද?",
     "අවසර දෙන්න",
     "අවසර නොදෙන්න",
+    "වසන්න",
+    "මෙම උපාංගයේම පරීක්ෂා කෙරේ · අන්තර්ජාලය නොමැතිවද ක්‍රියා කරයි",
 ])
 
 HEADER = """# Face liveness messages: {name} ({lang}). UTF-8, loaded by LivenessMessages through a Reader.

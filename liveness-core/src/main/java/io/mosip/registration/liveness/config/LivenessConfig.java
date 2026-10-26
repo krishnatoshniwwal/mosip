@@ -70,6 +70,9 @@ public final class LivenessConfig {
         KEYS.put("rateLimit.lockoutMs", (b, v) -> b.rateLimitLockoutMs(parseLong(v)));
         KEYS.put("consent.required", (b, v) -> b.consentRequired(parseBoolean(v)));
         KEYS.put("consent.maxAgeMs", (b, v) -> b.consentMaxAgeMs(parseLong(v)));
+        KEYS.put("capture.bind.enabled", (b, v) -> b.captureBindEnabled(parseBoolean(v)));
+        KEYS.put("capture.bind.timeoutMs", (b, v) -> b.captureBindTimeoutMs(parseLong(v)));
+        KEYS.put("capture.bind.maxFaceShift", (b, v) -> b.captureBindMaxFaceShift(parseFloat(v)));
     }
 
     private final Map<LivenessWorkflow, LivenessPolicy> policies;

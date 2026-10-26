@@ -5,10 +5,12 @@
     .\build.ps1 -Run        compile, test, then launch LIVE webcam face liveness
     .\build.ps1 -Run -Sim   compile, test, then launch the simulated desktop demo
     .\build.ps1 -Run -Device sbi:auto   live capture from the MOSIP SBI face device (found on ports 4501-4600)
+    .\build.ps1 -Run -RegClient        Registration Client screens (login, resident face, supervisor) with liveness
+    .\build.ps1 -Run -RegClient -Sim   the same with the mock device and a simulated person
     .\build.ps1 -Tool "interop --device webcam:0"   compile, then run a command-line tool (no tests)
   Maven users: mvn verify  (see pom.xml)
 #>
-param([switch]$Run, [switch]$Sim, [switch]$SkipTests, [string]$Tool, [string]$Device = 'webcam:0')
+param([switch]$Run, [switch]$Sim, [switch]$RegClient, [switch]$SkipTests, [string]$Tool, [string]$Device = 'webcam:0')
 if ($Tool) { $SkipTests = $true }
 $ErrorActionPreference = 'Stop'
 
@@ -19,6 +21,10 @@ $junitVersion = '1.10.2'
 $junitJar = Join-Path $libDir "junit-platform-console-standalone-$junitVersion.jar"
 $opencvJar = Join-Path $libDir 'opencv-4.9.0-0.jar'
 $onnxJar = Join-Path $libDir 'onnxruntime-1.17.0.jar'
+# OpenJFX for the Registration Client UI (the client itself is JavaFX). Platform-specific jars carry the natives.
+$javafxVersion = '17.0.10'
+$javafxPlatform = if ($IsMacOS) { 'mac' } elseif ($IsLinux) { 'linux' } else { 'win' }
+$javafxCp = (@('base', 'graphics', 'controls') | ForEach-Object { Join-Path $libDir "javafx-$_-$javafxVersion-$javafxPlatform.jar" }) -join ';'
 $modelDir = Join-Path $root 'models'
 # YuNet face detector, MIT licence, OpenCV model zoo. Pinned by hash so a changed file is never used.
 $yunetModel = Join-Path $modelDir 'face_detection_yunet_2023mar.onnx'
@@ -62,6 +68,9 @@ function Compile([string]$srcDir, [string]$outDir, [string]$classpath) {
 Download-IfMissing $junitJar "https://repo1.maven.org/maven2/org/junit/platform/junit-platform-console-standalone/$junitVersion/junit-platform-console-standalone-$junitVersion.jar" "JUnit console launcher"
 Download-IfMissing $opencvJar "https://repo1.maven.org/maven2/org/openpnp/opencv/4.9.0-0/opencv-4.9.0-0.jar" "OpenCV library"
 Download-IfMissing $onnxJar "https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime/1.17.0/onnxruntime-1.17.0.jar" "ONNX Runtime"
+foreach ($m in @('base', 'graphics', 'controls')) {
+    Download-IfMissing (Join-Path $libDir "javafx-$m-$javafxVersion-$javafxPlatform.jar") "https://repo1.maven.org/maven2/org/openjfx/javafx-$m/$javafxVersion/javafx-$m-$javafxVersion-$javafxPlatform.jar" "JavaFX $m"
+}
 Download-IfMissing $yunetModel "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx" "YuNet face detection model"
 if ((Get-FileHash -Algorithm SHA256 $yunetModel).Hash -ne $yunetSha256) {
     Remove-Item $yunetModel
@@ -100,13 +109,17 @@ Compile "$root/liveness-live-demo/src/main/java" "$out/live" "$out/core;$out/cam
 Write-Host '== Compiling liveness-tools (evaluation, interop, model packages)'
 Compile "$root/liveness-tools/src/main/java" "$out/tools" "$out/core;$out/camera;$out/onnx;$opencvJar;$onnxJar"
 
+Write-Host '== Compiling liveness-regclient (Registration Client integration, JavaFX)'
+Compile "$root/liveness-regclient/src/main/java" "$out/regclient" "$out/core;$out/camera;$out/onnx;$opencvJar;$onnxJar;$javafxCp"
+
 if (-not $SkipTests) {
     Write-Host '== Compiling tests'
     Compile "$root/liveness-core/src/test/java" "$out/test" "$out/core;$junitJar"
     Compile "$root/liveness-onnx-engine/src/test/java" "$out/onnx-test" "$out/core;$out/onnx;$opencvJar;$onnxJar;$junitJar"
     Compile "$root/liveness-tools/src/test/java" "$out/tools-test" "$out/core;$out/camera;$out/tools;$opencvJar;$junitJar"
+    Compile "$root/liveness-regclient/src/test/java" "$out/regclient-test" "$out/core;$out/regclient;$junitJar"
     Write-Host '== Running tests'
-    & java -jar $junitJar execute --class-path "$out/core;$out/test;$out/onnx;$out/onnx-test;$out/camera;$out/tools;$out/tools-test;$opencvJar;$onnxJar" --scan-class-path --disable-banner --details=tree
+    & java -jar $junitJar execute --class-path "$out/core;$out/test;$out/onnx;$out/onnx-test;$out/camera;$out/tools;$out/tools-test;$out/regclient;$out/regclient-test;$opencvJar;$onnxJar" --scan-class-path --disable-banner --details=tree
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
 }
 
@@ -116,7 +129,10 @@ if ($Tool) {
 }
 
 if ($Run) {
-    if ($Sim) {
+    if ($RegClient) {
+        Write-Host '== Launching Registration Client screens with face liveness'
+        & java "-Dmosip.liveness.device=$Device" "-Dmosip.liveness.sim=$($Sim.IsPresent)" -cp "$out/core;$out/camera;$out/onnx;$out/regclient;$opencvJar;$onnxJar;$javafxCp" io.mosip.registration.liveness.regclient.demo.RegClientDemo
+    } elseif ($Sim) {
         Write-Host '== Launching simulated demo (mock device)'
         & java -cp "$out/core;$out/demo" io.mosip.registration.liveness.demo.LivenessDemoApp
     } else {
