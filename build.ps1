@@ -23,6 +23,12 @@ $modelDir = Join-Path $root 'models'
 # YuNet face detector, MIT licence, OpenCV model zoo. Pinned by hash so a changed file is never used.
 $yunetModel = Join-Path $modelDir 'face_detection_yunet_2023mar.onnx'
 $yunetSha256 = '8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4'
+# MediaPipe Face Mesh (468 landmarks), Apache-2.0, run unchanged by OpenCV's TFLite reader: blink and smile.
+$meshModel = Join-Path $modelDir 'face_landmark.tflite'
+$meshSha256 = '1055cb9d4a9ca8b8c688902a3a5194311138ba256bcc94e336d8373a5f30c814'
+# MediaPipe Iris (eyelid contour per eye), Apache-2.0: eye openness for blink.
+$irisModel = Join-Path $modelDir 'iris_landmark.tflite'
+$irisSha256 = 'd1744d2a09c25f501d39eba4faff47e53ecca8852c5ce19bce8eeac39357521f'
 
 function Download-IfMissing([string]$file, [string]$url, [string]$label) {
     if (-not (Test-Path $file)) {
@@ -60,6 +66,16 @@ Download-IfMissing $yunetModel "https://github.com/opencv/opencv_zoo/raw/main/mo
 if ((Get-FileHash -Algorithm SHA256 $yunetModel).Hash -ne $yunetSha256) {
     Remove-Item $yunetModel
     throw "Checksum mismatch for $yunetModel; the file was deleted. Re-run to download it again."
+}
+Download-IfMissing $meshModel "https://storage.googleapis.com/mediapipe-assets/face_landmark.tflite" "MediaPipe face mesh model"
+if ((Get-FileHash -Algorithm SHA256 $meshModel).Hash -ne $meshSha256) {
+    Remove-Item $meshModel
+    throw "Checksum mismatch for $meshModel; the file was deleted. Re-run to download it again."
+}
+Download-IfMissing $irisModel "https://storage.googleapis.com/mediapipe-assets/iris_landmark.tflite" "MediaPipe iris model"
+if ((Get-FileHash -Algorithm SHA256 $irisModel).Hash -ne $irisSha256) {
+    Remove-Item $irisModel
+    throw "Checksum mismatch for $irisModel; the file was deleted. Re-run to download it again."
 }
 
 if (Test-Path $out) { Remove-Item -Recurse -Force $out }

@@ -7,6 +7,7 @@ target/
 .vscode/
 models/*.onnx
 models/*.caffemodel
+models/*.tflite
 !models/minifasnet_*.onnx
 interop-report.md
 dataset/

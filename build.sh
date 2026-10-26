@@ -19,6 +19,12 @@ ONNX_JAR="$LIB_DIR/onnxruntime-1.17.0.jar"
 # YuNet face detector, MIT licence, OpenCV model zoo. Pinned by hash so a changed file is never used.
 YUNET_MODEL="$ROOT/models/face_detection_yunet_2023mar.onnx"
 YUNET_SHA256=8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
+# MediaPipe Face Mesh (468 landmarks), Apache-2.0, run unchanged by OpenCV's TFLite reader: blink and smile.
+MESH_MODEL="$ROOT/models/face_landmark.tflite"
+MESH_SHA256=1055cb9d4a9ca8b8c688902a3a5194311138ba256bcc94e336d8373a5f30c814
+# MediaPipe Iris (eyelid contour per eye), Apache-2.0: eye openness for blink.
+IRIS_MODEL="$ROOT/models/iris_landmark.tflite"
+IRIS_SHA256=d1744d2a09c25f501d39eba4faff47e53ecca8852c5ce19bce8eeac39357521f
 
 SEP=':'
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) SEP=';' ;; esac
@@ -60,6 +66,20 @@ if command -v sha256sum >/dev/null; then ACTUAL=$(sha256sum "$YUNET_MODEL" | cut
 if [ "$ACTUAL" != "$YUNET_SHA256" ]; then
   rm -f "$YUNET_MODEL"
   echo "Checksum mismatch for $YUNET_MODEL; the file was deleted. Re-run to download it again." >&2
+  exit 1
+fi
+download_if_missing "$MESH_MODEL" "https://storage.googleapis.com/mediapipe-assets/face_landmark.tflite" "MediaPipe face mesh model"
+if command -v sha256sum >/dev/null; then ACTUAL=$(sha256sum "$MESH_MODEL" | cut -d' ' -f1); else ACTUAL=$(shasum -a 256 "$MESH_MODEL" | cut -d' ' -f1); fi
+if [ "$ACTUAL" != "$MESH_SHA256" ]; then
+  rm -f "$MESH_MODEL"
+  echo "Checksum mismatch for $MESH_MODEL; the file was deleted. Re-run to download it again." >&2
+  exit 1
+fi
+download_if_missing "$IRIS_MODEL" "https://storage.googleapis.com/mediapipe-assets/iris_landmark.tflite" "MediaPipe iris model"
+if command -v sha256sum >/dev/null; then ACTUAL=$(sha256sum "$IRIS_MODEL" | cut -d' ' -f1); else ACTUAL=$(shasum -a 256 "$IRIS_MODEL" | cut -d' ' -f1); fi
+if [ "$ACTUAL" != "$IRIS_SHA256" ]; then
+  rm -f "$IRIS_MODEL"
+  echo "Checksum mismatch for $IRIS_MODEL; the file was deleted. Re-run to download it again." >&2
   exit 1
 fi
 

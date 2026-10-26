@@ -18,7 +18,8 @@ in behind interfaces, so no vendor is hard-wired.
 
 | Done | Not yet |
 |---|---|
-| Vendor-neutral device and engine interfaces | Blink/smile from a dense landmark model |
+| Vendor-neutral device and engine interfaces | Look up/down (needs calibrated pitch) |
+| Blink (MediaPipe Iris eyelid contour) and smile (MediaPipe Face Mesh) challenges | |
 | Enforced capture oval (position + distance), drawn from the same config | Calibrating replay/occlusion thresholds on real attack data |
 | Replay attack cues: moiré, lighting uniformity, bezel/frame edges | Native-speaker review of translations |
 | Occlusion handling (mask, scarf, sunglasses) with region-safe challenge fallback | |
@@ -39,7 +40,9 @@ in behind interfaces, so no vendor is hard-wired.
 | 143 automated tests | |
 
 The live engine (`liveness-onnx-engine`) detects faces with OpenCV's YuNet model and measures head turns
-from its five landmarks, so it only issues turn-left/turn-right challenges for now. Anti-spoofing uses the
+from its five landmarks. Smile comes from the MediaPipe Face Mesh model and blink from the MediaPipe Iris
+model's eyelid contour. Both models run unchanged through OpenCV's TFLite reader, so the challenges are
+blink, smile, turn left and turn right (look up/down stay off until pitch is calibrated). Anti-spoofing uses the
 MiniFASNet models in `models/` (Apache-2.0, converted with `tools/convert_minifasnet.py`; see
 `models/NOTICE.md`). The simulated engine (`-Sim`) reports what a model would
 measure and does not analyse real pixels.

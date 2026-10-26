@@ -31,8 +31,9 @@ import java.util.logging.Logger;
  * bezel edges, see {@link ReplayAttackDetector}).
  *
  * <p>Only challenges the engine can genuinely measure are advertised in {@link #info()}. Head turns
- * come from the landmarks. Blink and smile need a dense landmark model, so eye openness and smile
- * are reported as unknown (NaN) and those challenges are never issued until that model is wired in.
+ * come from the five YuNet landmarks. Smile comes from the MediaPipe Face Mesh model and blink from the
+ * MediaPipe Iris model ({@link FaceMeshAnalyzer}); each is offered only when its model is present, and
+ * otherwise reported as unknown (NaN). Look up/down stay off until pitch is calibrated.
  */
 public final class OnnxLivenessEngine implements LivenessEngine {
 
@@ -42,12 +43,11 @@ public final class OnnxLivenessEngine implements LivenessEngine {
     public static final String ENGINE_VERSION = "1.2.0";
 
     private static final Logger LOG = Logger.getLogger(OnnxLivenessEngine.class.getName());
-    private static final Set<ChallengeType> MEASURABLE_CHALLENGES =
-            EnumSet.of(ChallengeType.TURN_LEFT, ChallengeType.TURN_RIGHT);
-
     private final EngineInfo engineInfo;
     private final FaceDetector faceDetector;
     private final FaceLandmarkAnalyzer landmarkAnalyzer;
+    /** Null when the face mesh model is absent: blink and smile are then not offered. */
+    private final FaceMeshAnalyzer faceMesh;
     private final AntiSpoofAnalyzer antiSpoofAnalyzer;
     private final ReplayAttackDetector replayDetector = new ReplayAttackDetector();
     private final OcclusionAnalyzer occlusionAnalyzer = new OcclusionAnalyzer();
@@ -78,11 +78,23 @@ public final class OnnxLivenessEngine implements LivenessEngine {
         this.faceDetector = new FaceDetector(modelDir);
         this.landmarkAnalyzer = new FaceLandmarkAnalyzer(modelDir);
         this.antiSpoofAnalyzer = new AntiSpoofAnalyzer(modelDir);
+        this.faceMesh = FaceMeshAnalyzer.loadIfPresent(modelDir);
 
+        Set<ChallengeType> measurable = EnumSet.of(ChallengeType.TURN_LEFT, ChallengeType.TURN_RIGHT);
+        if (faceMesh != null) {
+            measurable.add(ChallengeType.SMILE);
+            if (faceMesh.measuresEyes()) {
+                measurable.add(ChallengeType.BLINK);
+            }
+        } else {
+            LOG.info("Face mesh model " + FaceMeshAnalyzer.MESH_FILE + " not found in " + modelDir
+                    + ": blink and smile challenges are disabled");
+        }
         String modelVersion = "yunet-2023mar+" + (antiSpoofAnalyzer.isUsingModel() ? "minifasnet" : "heuristic-pad")
+                + (faceMesh != null ? "+facemesh" : "") + (faceMesh != null && faceMesh.measuresEyes() ? "+iris" : "")
                 + "+replay-cues+occlusion (" + source + ")";
         this.engineInfo = new EngineInfo("MOSIP Real-Time Liveness Engine", ENGINE_VERSION, modelVersion,
-                MEASURABLE_CHALLENGES, true);
+                measurable, true);
     }
 
     /** Model directory from {@value #MODEL_DIR_PROPERTY}, or {@code models} in the working directory. */
@@ -134,13 +146,19 @@ public final class OnnxLivenessEngine implements LivenessEngine {
                 }
                 Rect r = face.getBox();
                 float[] pose = HeadPoseEstimator.estimate(face);
-                observations.add(FaceObservation.builder()
+                FaceObservation.Builder observation = FaceObservation.builder()
                         .center((r.x + r.width / 2.0f) / frameW, (r.y + r.height / 2.0f) / frameH)
                         .size((float) r.width / frameW, (float) r.height / frameH)
                         .quality(landmarkAnalyzer.estimateQuality(bgrMat, r))
                         .pose(pose[0], pose[1], pose[2])
-                        .occluded(occlusion.regions)
-                        .build());
+                        .occluded(occlusion.regions);
+                // Eyes and smile only matter for a single face (a second face fails or pauses the session).
+                if (faceMesh != null && detectedFaces.size() == 1) {
+                    FaceMeshAnalyzer.Measurement mesh = faceMesh.measure(bgrMat, face);
+                    observation.eyes(mesh.leftEye, mesh.rightEye).smile(mesh.smile);
+                    diagnostics.append("\n").append(mesh.readout);
+                }
+                observations.add(observation.build());
             }
 
             // PAD and passive score are evaluated for the primary face (when exactly one is present)
@@ -182,5 +200,8 @@ public final class OnnxLivenessEngine implements LivenessEngine {
         faceDetector.close();
         landmarkAnalyzer.close();
         antiSpoofAnalyzer.close();
+        if (faceMesh != null) {
+            faceMesh.close();
+        }
     }
 }

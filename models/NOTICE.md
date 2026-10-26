@@ -3,6 +3,8 @@
 | File | In git | Source | Licence |
 |---|---|---|---|
 | `face_detection_yunet_2023mar.onnx` | No: downloaded by `build.ps1` / `build.sh`, SHA-256 verified | [OpenCV model zoo, YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) | MIT |
+| `face_landmark.tflite` | No: downloaded, SHA-256 `1055cb9d…f30c814` | [MediaPipe Face Mesh](https://github.com/google-ai-edge/mediapipe) (`mediapipe-assets`), unmodified | Apache-2.0 |
+| `iris_landmark.tflite` | No: downloaded, SHA-256 `d1744d2a…357521f` | [MediaPipe Iris](https://github.com/google-ai-edge/mediapipe) (`mediapipe-assets`), unmodified | Apache-2.0 |
 | `minifasnet_v2_2.7_80x80.onnx` | Yes | Converted from `2.7_80x80_MiniFASNetV2.pth` | Apache-2.0 |
 | `minifasnet_v1se_4.0_80x80.onnx` | Yes | Converted from `4_0_0_80x80_MiniFASNetV1SE.pth` | Apache-2.0 |
 
