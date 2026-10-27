@@ -5,8 +5,10 @@ import io.mosip.registration.liveness.model.ModelManifest;
 import io.mosip.registration.liveness.model.ModelPackageVerifier;
 import io.mosip.registration.liveness.model.ModelRepository;
 import io.mosip.registration.liveness.model.ModelSigning;
+import io.mosip.registration.liveness.model.ModelSync;
 import io.mosip.registration.liveness.onnx.OnnxLivenessEngine;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,7 +17,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyPair;
 import java.util.Collections;
 
-/** {@code models} subcommand: release-side signing and client-side install/verify/rollback. */
+/** {@code models} subcommand: release-side signing and client-side install/sync/verify/rollback. */
 final class ModelPackageTool {
 
     private ModelPackageTool() {
@@ -23,7 +25,7 @@ final class ModelPackageTool {
 
     static int run(String[] a) throws Exception {
         if (a.length == 0) {
-            System.err.println("models keygen|sign|verify|install|status|rollback ...");
+            System.err.println("models keygen|sign|verify|install|sync|status|rollback ...");
             return 2;
         }
         try {
@@ -66,6 +68,14 @@ final class ModelPackageTool {
                     System.out.println("Installed: " + repo.installedSequences());
                     System.out.println("Active: " + repo.activate().getManifest().label() + " (verified)");
                     return 0;
+                }
+                case "sync": {
+                    Path repoDir = Paths.get(a[2]);
+                    ModelPackageVerifier v = verifier(a[3]);
+                    ModelSync.Result r = new ModelSync(URI.create(a[1]), new ModelRepository(repoDir, v), v,
+                            repoDir.resolve("downloads")).sync();
+                    System.out.println(r);
+                    return r.getStatus() == ModelSync.Status.REJECTED ? 1 : 0;
                 }
                 case "rollback": {
                     ModelManifest m = new ModelRepository(Paths.get(a[1]), verifier(a[2])).rollback();

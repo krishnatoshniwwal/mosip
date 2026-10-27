@@ -187,7 +187,8 @@ public final class ModelRepository {
         }
     }
 
-    private long highestInstalled() {
+    /** Rollback-protection floor: the highest sequence ever installed here (0 if none). */
+    synchronized long highestInstalled() {
         long highest = 0;
         Path state = root.resolve("state.properties");
         if (Files.isRegularFile(state)) {

@@ -31,9 +31,10 @@ import java.util.logging.Logger;
  * bezel edges, see {@link ReplayAttackDetector}).
  *
  * <p>Only challenges the engine can genuinely measure are advertised in {@link #info()}. Head turns
- * come from the five YuNet landmarks. Smile comes from the MediaPipe Face Mesh model and blink from the
- * MediaPipe Iris model ({@link FaceMeshAnalyzer}); each is offered only when its model is present, and
- * otherwise reported as unknown (NaN). Look up/down stay off until pitch is calibrated.
+ * come from the five YuNet landmarks. Smile and look up/down (pitch from the mesh's 3D forehead-to-chin
+ * line) come from the MediaPipe Face Mesh model and blink from the MediaPipe Iris model
+ * ({@link FaceMeshAnalyzer}); each is offered only when its model is present, and otherwise reported as
+ * unknown (NaN).
  */
 public final class OnnxLivenessEngine implements LivenessEngine {
 
@@ -83,12 +84,14 @@ public final class OnnxLivenessEngine implements LivenessEngine {
         Set<ChallengeType> measurable = EnumSet.of(ChallengeType.TURN_LEFT, ChallengeType.TURN_RIGHT);
         if (faceMesh != null) {
             measurable.add(ChallengeType.SMILE);
+            measurable.add(ChallengeType.LOOK_UP);
+            measurable.add(ChallengeType.LOOK_DOWN);
             if (faceMesh.measuresEyes()) {
                 measurable.add(ChallengeType.BLINK);
             }
         } else {
             LOG.info("Face mesh model " + FaceMeshAnalyzer.MESH_FILE + " not found in " + modelDir
-                    + ": blink and smile challenges are disabled");
+                    + ": blink, smile and look up/down challenges are disabled");
         }
         String modelVersion = "yunet-2023mar+" + (antiSpoofAnalyzer.isUsingModel() ? "minifasnet" : "heuristic-pad")
                 + (faceMesh != null ? "+facemesh" : "") + (faceMesh != null && faceMesh.measuresEyes() ? "+iris" : "")
@@ -156,6 +159,9 @@ public final class OnnxLivenessEngine implements LivenessEngine {
                 if (faceMesh != null && detectedFaces.size() == 1) {
                     FaceMeshAnalyzer.Measurement mesh = faceMesh.measure(bgrMat, face);
                     observation.eyes(mesh.leftEye, mesh.rightEye).smile(mesh.smile);
+                    if (!Float.isNaN(mesh.pitch)) {
+                        observation.pose(pose[0], mesh.pitch, pose[2]);
+                    }
                     diagnostics.append("\n").append(mesh.readout);
                 }
                 observations.add(observation.build());

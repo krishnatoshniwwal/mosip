@@ -18,14 +18,15 @@ in behind interfaces, so no vendor is hard-wired.
 
 | Done | Not yet |
 |---|---|
-| Vendor-neutral device and engine interfaces | Look up/down (needs calibrated pitch) |
-| Blink (MediaPipe Iris eyelid contour) and smile (MediaPipe Face Mesh) challenges | |
+| Vendor-neutral device and engine interfaces | |
+| Blink (MediaPipe Iris eyelid contour), smile and look up/down (MediaPipe Face Mesh) challenges | Tuning the pitch angle on recorded sessions |
 | Enforced capture oval (position + distance), drawn from the same config | Calibrating replay/occlusion thresholds on real attack data |
 | Replay attack cues: moiré, lighting uniformity, bezel/frame edges | Native-speaker review of translations |
 | Occlusion handling (mask, scarf, sunglasses) with region-safe challenge fallback | |
 | Cross-session rate limiting with lockout persisted across restarts | |
 | Localised prompts: English, French, Arabic (RTL), Hindi, Kannada, Tamil, Filipino, Amharic, Sinhala | |
 | Signed model packages: ECDSA manifest, rollback protection, atomic install, tamper check at start | |
+| Online model sync: fetches a newer signed package over HTTPS, refuses forged/replayed ones before downloading, keeps the installed one offline | Hooking it into the client's sync job |
 | ISO/IEC 30107-3 evaluation harness: APCER per species, BPCER, BPCER10/20/100, DET, confidence intervals | Evaluation on data collected from target devices |
 | Device interoperability conformance suite + engine performance benchmark | Running it on each supported vendor device |
 | Live webcam engine: YuNet face detection + landmark head pose (turn left/right challenges) | Threshold calibration on recorded live/spoof sessions |
@@ -39,12 +40,14 @@ in behind interfaces, so no vendor is hard-wired.
 | Audit events (no biometric data) and anonymous metrics | |
 | Reference capture UI (Swing) with diagnostic mode | |
 | Explicit camera consent before the device is opened (enforced by the service, audited, translated) | |
-| 191 automated tests | |
+| 201 automated tests | |
 
 The live engine (`liveness-onnx-engine`) detects faces with OpenCV's YuNet model and measures head turns
-from its five landmarks. Smile comes from the MediaPipe Face Mesh model and blink from the MediaPipe Iris
-model's eyelid contour. Both models run unchanged through OpenCV's TFLite reader, so the challenges are
-blink, smile, turn left and turn right (look up/down stay off until pitch is calibrated). Anti-spoofing uses the
+from its five landmarks. Smile comes from the MediaPipe Face Mesh model, look up/down from how the mesh's 3D
+forehead-to-chin line tilts in depth, and blink from the MediaPipe Iris model's eyelid contour. Both models run
+unchanged through OpenCV's TFLite reader, so the challenges are blink, smile, turn left/right and look up/down
+(the default pool leaves look up/down to the supervisor policy; add them to `active.challenges` to use them
+everywhere). Anti-spoofing uses the
 MiniFASNet models in `models/` (Apache-2.0, converted with `tools/convert_minifasnet.py`; see
 `models/NOTICE.md`). The simulated engine (`-Sim`) reports what a model would
 measure and does not analyse real pixels.
@@ -56,7 +59,7 @@ Needs JDK 11+. No Maven required: the scripts download JUnit, OpenCV, ONNX Runti
 `-Dmosip.liveness.models=<dir>` at a folder containing `face_detection_yunet_2023mar.onnx`.
 
 ```powershell
-.\build.ps1          # compile + 191 tests
+.\build.ps1          # compile + 201 tests
 .\build.ps1 -Run     # launch LIVE webcam capture & real liveness
 .\build.ps1 -Run -Sim # launch simulated desktop demo (mock device)
 .\build.ps1 -Run -Device sbi:auto   # live capture from an SBI face device (MDS on 127.0.0.1:4501-4600)
@@ -91,6 +94,8 @@ translated prompts. The demo reads `config/liveness.properties`.
 ./build.sh tool models keygen release-private.pem release-public.pem
 ./build.sh tool models sign models-v2/ release-private.pem --version 1.3.0 --sequence 2
 ./build.sh tool models install models-v2/ /var/lib/mosip/liveness-models release-public.pem
+# When online: fetch a newer signed package published as static files (manifest.properties, manifest.sig, models)
+./build.sh tool models sync https://updates.example.org/liveness-models/ /var/lib/mosip/liveness-models release-public.pem
 ```
 
 On Windows: `.\build.ps1 -Tool "interop --device webcam:0"`. The live demo runs only on a verified package
@@ -139,7 +144,7 @@ liveness-core/                       pure Java 11 library, zero dependencies (De
   audit/       AuditEvent(Type), AuditSink, LivenessMetrics
   mock/        MockFaceDevice, SimulatedSubject, SimulatedLivenessEngine
   i18n/        LivenessMessages + messages_<lang>.properties           (localised prompts, RTL)
-  model/       ModelPackageVerifier, ModelRepository, ModelSigning      (signed model packages)
+  model/       ModelPackageVerifier, ModelRepository, ModelSigning, ModelSync (signed packages, online sync)
   evaluation/  PadMetrics, PadEvaluation                                (ISO/IEC 30107-3 metrics + report)
   conformance/ DeviceConformanceSuite, EngineBenchmark                  (interop + performance tests)
   gate/        LivenessGate, GateResult                                 (liveness before the client's own capture)

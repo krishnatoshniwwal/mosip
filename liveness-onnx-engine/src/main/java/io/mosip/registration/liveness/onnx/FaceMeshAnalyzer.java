@@ -26,8 +26,9 @@ import java.util.logging.Logger;
  * <ul>
  *   <li><b>Face Mesh</b> ({@value #MESH_FILE}, 468 landmarks): the face box rotated so the eyes are
  *       level, enlarged 1.5x into a square, 192x192 RGB in 0..1. Gives the <b>smile</b> (mouth width
- *       relative to the outer eye corners, plus how far the mouth corners rise above the lip centre)
- *       and the eye corners for the iris model.</li>
+ *       relative to the outer eye corners, plus how far the mouth corners rise above the lip centre),
+ *       head <b>pitch</b> (depth tilt of the forehead-to-chin line) and the eye corners for the iris
+ *       model.</li>
  *   <li><b>Iris</b> ({@value #IRIS_FILE}): each eye cropped around its corners, levelled, enlarged 2.3x,
  *       64x64 RGB in 0..1, one eye mirrored. Its eyelid contour gives the eye aspect ratio (EAR),
  *       mapped to <b>openness</b>. The face mesh's own eye points follow a standard eye shape and do not
@@ -63,6 +64,8 @@ final class FaceMeshAnalyzer implements AutoCloseable {
     static final int MOUTH_LEFT = 291;
     static final int LIP_UPPER = 13;
     static final int LIP_LOWER = 14;
+    static final int FOREHEAD = 10;
+    static final int CHIN = 152;
 
     /**
      * Iris eye contour: 0..8 run along the lower lid from corner to corner, 9..15 along the upper lid
@@ -81,6 +84,12 @@ final class FaceMeshAnalyzer implements AutoCloseable {
     /** Corner lift / outer-eye-corner distance: about 0 at rest, 0.06-0.11 when smiling. */
     static final double LIFT_REST = -0.02;
     static final double LIFT_RANGE = 0.10;
+    /**
+     * Forehead-to-chin depth tilt (degrees) of a face looking straight at the camera, subtracted so a
+     * frontal face reads about 0, as the capture's frontal-frame check expects. From MediaPipe's canonical
+     * face model: forehead (y 8.26, z 4.48) and chin (y -9.40, z 4.26), so the chin sits 0.22 units behind.
+     */
+    static final double PITCH_NEUTRAL = -0.7;
 
     private static final Logger LOG = Logger.getLogger(FaceMeshAnalyzer.class.getName());
 
@@ -95,17 +104,20 @@ final class FaceMeshAnalyzer implements AutoCloseable {
         final float leftEye;
         final float rightEye;
         final float smile;
+        /** Degrees, positive = looking up. */
+        final float pitch;
         final String readout;
 
-        Measurement(float leftEye, float rightEye, float smile, String readout) {
+        Measurement(float leftEye, float rightEye, float smile, float pitch, String readout) {
             this.leftEye = leftEye;
             this.rightEye = rightEye;
             this.smile = smile;
+            this.pitch = pitch;
             this.readout = readout;
         }
 
         static Measurement unavailable(String why) {
-            return new Measurement(Float.NaN, Float.NaN, Float.NaN, why);
+            return new Measurement(Float.NaN, Float.NaN, Float.NaN, Float.NaN, why);
         }
     }
 
@@ -162,6 +174,7 @@ final class FaceMeshAnalyzer implements AutoCloseable {
         double width = mouthWidthRatio(points);
         double lift = cornerLift(points);
         float smile = smileScore(width, lift);
+        float pitch = pitchDegrees(points);
 
         float leftEye = Float.NaN;
         float rightEye = Float.NaN;
@@ -175,9 +188,9 @@ final class FaceMeshAnalyzer implements AutoCloseable {
             rightEye = openness(earRight);
             eyes = String.format(Locale.ROOT, "eyelid EAR L %.3f R %.3f -> eyes %.2f/%.2f", earLeft, earRight, leftEye, rightEye);
         }
-        String readout = String.format(Locale.ROOT, "mesh: %s | mouth width %.3f lift %.3f -> smile %.2f",
-                eyes, width, lift, smile);
-        return new Measurement(leftEye, rightEye, smile, readout);
+        String readout = String.format(Locale.ROOT, "mesh: %s | mouth width %.3f lift %.3f -> smile %.2f | pitch %.1f",
+                eyes, width, lift, smile, pitch);
+        return new Measurement(leftEye, rightEye, smile, pitch, readout);
     }
 
     /** EAR of one eye from the iris model's eyelid contour; NaN if the model gives no contour. */
@@ -308,6 +321,22 @@ final class FaceMeshAnalyzer implements AutoCloseable {
         double width = clamp01((widthRatio - WIDTH_REST) / WIDTH_RANGE);
         double corners = clamp01((lift - LIFT_REST) / LIFT_RANGE);
         return (float) (0.7 * width + 0.3 * corners);
+    }
+
+    /**
+     * Head pitch from the forehead-to-chin line of the eye-levelled mesh crop: looking up brings the chin
+     * towards the camera (MediaPipe z decreases towards the camera), tilting the line in depth. Unlike the
+     * nose's position between YuNet's eye and mouth points, this does not depend on face proportions.
+     *
+     * @return degrees, positive = looking up, or NaN if the points are degenerate
+     */
+    static float pitchDegrees(float[] pts) {
+        double dy = pts[3 * CHIN + 1] - pts[3 * FOREHEAD + 1];
+        double dz = pts[3 * CHIN + 2] - pts[3 * FOREHEAD + 2];
+        if (dy < 1e-6) {
+            return Float.NaN;
+        }
+        return (float) (Math.toDegrees(Math.atan2(-dz, dy)) - PITCH_NEUTRAL);
     }
 
     private static double sigmoid(float logit) {

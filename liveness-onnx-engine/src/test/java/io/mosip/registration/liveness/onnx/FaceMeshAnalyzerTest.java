@@ -65,6 +65,24 @@ class FaceMeshAnalyzerTest {
     }
 
     @Test
+    void chinComingTowardsTheCameraReadsAsLookingUp() {
+        assertEquals(-FaceMeshAnalyzer.PITCH_NEUTRAL, FaceMeshAnalyzer.pitchDegrees(tilted(0)), 1e-4);
+        assertEquals(20 - FaceMeshAnalyzer.PITCH_NEUTRAL, FaceMeshAnalyzer.pitchDegrees(tilted(20)), 1e-4, "up");
+        assertEquals(-15 - FaceMeshAnalyzer.PITCH_NEUTRAL, FaceMeshAnalyzer.pitchDegrees(tilted(-15)), 1e-4, "down");
+        assertTrue(Float.isNaN(FaceMeshAnalyzer.pitchDegrees(new float[468 * 3])), "collapsed mesh");
+    }
+
+    /** Forehead-to-chin line 120 px long, rotated about the x axis: positive = chin towards the camera. */
+    private static float[] tilted(double upDegrees) {
+        float[] p = new float[468 * 3];
+        double a = Math.toRadians(upDegrees);
+        set(p, FaceMeshAnalyzer.FOREHEAD, 96, 36);
+        set(p, FaceMeshAnalyzer.CHIN, 96, 36 + 120 * Math.cos(a));
+        p[3 * FaceMeshAnalyzer.CHIN + 2] = (float) (-120 * Math.sin(a));
+        return p;
+    }
+
+    @Test
     void cropIsTheFaceBoxEnlargedIntoASquareAndLevelledByTheEyes() {
         DetectedFace level = new DetectedFace(new Rect(100, 100, 80, 100),
                 new Point(120, 130), new Point(160, 130), new Point(140, 150), new Point(125, 175), new Point(155, 175), 0.9f);

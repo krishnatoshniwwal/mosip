@@ -12,3 +12,4 @@ models/*.tflite
 interop-report.md
 dataset/
 pad-evaluation/
+.gradle/

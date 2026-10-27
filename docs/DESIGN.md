@@ -113,7 +113,7 @@ stateDiagram-v2
 3. **Active.** Challenges are measured **relative to the baseline**: a blink must go open → closed → open,
    a head turn must reach N° from the resting pose, a smile must rise clearly above the person's
    resting expression. Detected → "Action detected" → next challenge.
-4. **Hold still / capture.** The best frontal (|yaw|, |pitch| ≤ 12°), eyes-open, highest-quality frame
+4. **Hold still / capture.** The best frontal (|yaw| ≤ 12°, pitch within 12° of the person's resting pose), eyes-open, highest-quality frame
    from *after* verification becomes the captured biometric. The frame that is accepted is therefore one
    whose liveness was just verified.
 
@@ -357,9 +357,16 @@ Faults that are not the person's doing never use up their attempts. Retry after 
   model). The active package is **re-verified at every engine start**, so files tampered with on disk stop
   the engine (fail closed), and an explicit `rollback()` returns to the previous verified package. The
   package label (`name version #sequence`) is in `EngineInfo.modelVersion` and so in every
-  `SESSION_STARTED` audit event. Updates arrive through the client's sync when online, or on removable
-  media offline; verification itself never needs the network. The release private key never ships to
-  clients. Tool: `LivenessTools models keygen|sign|verify|install|status|rollback`.
+  `SESSION_STARTED` audit event. Updates arrive on removable media offline, or through **`ModelSync`**
+  when online: the update server publishes a signed package directory as static files, and a sync fetches
+  only `manifest.properties` and `manifest.sig` first, checking the signature, engine version and sequence
+  **before downloading any model** (a forged, replayed or incompatible package is refused for a few kB).
+  Each listed file is then streamed into private staging and cut off at its signed size, and the result
+  goes through the normal `install` above. HTTPS is required (plain HTTP only for loopback tests), but the
+  signature, not the transport, is what makes a package trusted. An unreachable server or an interrupted
+  download changes nothing (`OFFLINE`), so verification and enforcement never need the network. The
+  release private key never ships to clients. Tool:
+  `LivenessTools models keygen|sign|verify|install|sync|status|rollback`.
 - **Device trust**: SBI L0/L1 signing of the final `/capture` response still applies. Liveness adds a check
   on the presentation itself, not on device authenticity.
 

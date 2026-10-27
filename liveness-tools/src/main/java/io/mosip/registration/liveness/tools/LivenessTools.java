@@ -9,7 +9,7 @@ import java.util.Arrays;
  * record   &lt;dataset&gt; [options]   webcam recorder for the PAD evaluation dataset
  * evaluate &lt;dataset&gt; [options]   ISO/IEC 30107-3 PAD evaluation of the on-device engine
  * interop  [options]             device conformance + engine performance test
- * models   &lt;command&gt; ...         signed model packages: keygen, sign, verify, install, status, rollback
+ * models   &lt;command&gt; ...         signed model packages: keygen, sign, verify, install, sync, status, rollback
  * </pre>
  */
 public final class LivenessTools {
@@ -53,6 +53,7 @@ public final class LivenessTools {
                 + "  models   keygen <private.pem> <public.pem>\n"
                 + "           sign <dir> <private.pem> --name N --version V --sequence S [--min-engine 1.2.0]\n"
                 + "           verify <dir> <public.pem> | install <dir> <repo> <public.pem>\n"
+                + "           sync <https://server/models/> <repo> <public.pem>\n"
                 + "           status <repo> <public.pem> | rollback <repo> <public.pem>");
     }
 

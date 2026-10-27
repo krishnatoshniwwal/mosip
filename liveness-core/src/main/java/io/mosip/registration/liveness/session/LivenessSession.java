@@ -502,7 +502,10 @@ public final class LivenessSession {
     }
 
     private boolean isCapturable(FaceObservation face) {
-        if (Math.abs(face.getYaw()) > FRONTAL_MAX_ANGLE || Math.abs(face.getPitch()) > FRONTAL_MAX_ANGLE) {
+        // Pitch is judged against the person's resting pose: a camera above or below eye level shifts the
+        // absolute angle, while what matters here is that they are no longer looking up or down for a challenge.
+        float pitchReference = baseline == null || Float.isNaN(baseline.getPitch()) ? 0f : baseline.getPitch();
+        if (Math.abs(face.getYaw()) > FRONTAL_MAX_ANGLE || Math.abs(face.getPitch() - pitchReference) > FRONTAL_MAX_ANGLE) {
             return false;
         }
         float eyes = face.eyeOpenness();

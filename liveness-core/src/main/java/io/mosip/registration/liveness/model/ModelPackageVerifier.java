@@ -49,31 +49,8 @@ public final class ModelPackageVerifier {
         if (!Files.isDirectory(dir, LinkOption.NOFOLLOW_LINKS)) {
             throw new ModelIntegrityException("Not a model package directory: " + dir);
         }
-        byte[] manifestBytes = read(dir.resolve(ModelManifest.MANIFEST_FILE), MAX_MANIFEST_BYTES);
-        byte[] signature;
-        try {
-            signature = Base64.getMimeDecoder().decode(
-                    new String(read(dir.resolve(ModelManifest.SIGNATURE_FILE), MAX_SIGNATURE_BYTES),
-                            StandardCharsets.US_ASCII).trim());
-        } catch (IllegalArgumentException e) {
-            throw new ModelIntegrityException("Model package signature is not valid base64", e);
-        }
-        boolean signed = false;
-        for (PublicKey key : trustedKeys) {
-            if (ModelSigning.verify(manifestBytes, signature, key)) {
-                signed = true;
-                break;
-            }
-        }
-        if (!signed) {
-            throw new ModelIntegrityException("Model package signature does not match any trusted key: " + dir);
-        }
-
-        ModelManifest manifest = ModelManifest.parse(manifestBytes);
-        if (engineVersion != null && ModelManifest.compareVersions(engineVersion, manifest.getEngineMinVersion()) < 0) {
-            throw new ModelIntegrityException("Model package " + manifest.label() + " needs engine "
-                    + manifest.getEngineMinVersion() + " or later; this engine is " + engineVersion);
-        }
+        ModelManifest manifest = verifyManifest(read(dir.resolve(ModelManifest.MANIFEST_FILE), MAX_MANIFEST_BYTES),
+                read(dir.resolve(ModelManifest.SIGNATURE_FILE), MAX_SIGNATURE_BYTES), dir.toString());
         for (Map.Entry<String, ModelManifest.Entry> e : manifest.getFiles().entrySet()) {
             Path file = dir.resolve(e.getKey());
             if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
@@ -102,6 +79,47 @@ public final class ModelPackageVerifier {
             throw new ModelIntegrityException("Cannot list model package " + dir, e);
         }
         return manifest;
+    }
+
+    /**
+     * Checks the signature and engine version of a manifest alone, before any model file is present (so
+     * {@link ModelSync} can refuse a package without downloading it). The files still need {@link #verify}.
+     */
+    ModelManifest verifyManifest(byte[] manifestBytes, byte[] signatureText, String source) throws ModelIntegrityException {
+        if (manifestBytes.length > MAX_MANIFEST_BYTES || signatureText.length > MAX_SIGNATURE_BYTES) {
+            throw new ModelIntegrityException("Model manifest or signature is too large: " + source);
+        }
+        byte[] signature;
+        try {
+            signature = Base64.getMimeDecoder().decode(new String(signatureText, StandardCharsets.US_ASCII).trim());
+        } catch (IllegalArgumentException e) {
+            throw new ModelIntegrityException("Model package signature is not valid base64", e);
+        }
+        boolean signed = false;
+        for (PublicKey key : trustedKeys) {
+            if (ModelSigning.verify(manifestBytes, signature, key)) {
+                signed = true;
+                break;
+            }
+        }
+        if (!signed) {
+            throw new ModelIntegrityException("Model package signature does not match any trusted key: " + source);
+        }
+
+        ModelManifest manifest = ModelManifest.parse(manifestBytes);
+        if (engineVersion != null && ModelManifest.compareVersions(engineVersion, manifest.getEngineMinVersion()) < 0) {
+            throw new ModelIntegrityException("Model package " + manifest.label() + " needs engine "
+                    + manifest.getEngineMinVersion() + " or later; this engine is " + engineVersion);
+        }
+        return manifest;
+    }
+
+    static int maxManifestBytes() {
+        return MAX_MANIFEST_BYTES;
+    }
+
+    static int maxSignatureBytes() {
+        return MAX_SIGNATURE_BYTES;
     }
 
     private static byte[] read(Path file, int maxBytes) throws ModelIntegrityException {
