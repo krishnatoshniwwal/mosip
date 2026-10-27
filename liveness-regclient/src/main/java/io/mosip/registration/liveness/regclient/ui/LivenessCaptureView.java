@@ -59,6 +59,7 @@ public final class LivenessCaptureView extends HBox {
     private final Label attempt = new Label();
     private final VBox tips = new VBox(4);
     private final Label onDevice = new Label();
+    private final Label connectivity = new Label();
     private final VBox status = new VBox(8);
 
     private final AtomicReference<Image> latest = new AtomicReference<>();
@@ -73,6 +74,8 @@ public final class LivenessCaptureView extends HBox {
     private ChallengeType challenge;
     private boolean capturing;
     private boolean previewOn = true;
+    /** Null until the client reports connectivity: the badge stays hidden. */
+    private Boolean online;
 
     public LivenessCaptureView() {
         super(16);
@@ -93,10 +96,14 @@ public final class LivenessCaptureView extends HBox {
         onDevice.setTextFill(MUTED);
         onDevice.setFont(Font.font(11));
         onDevice.setStyle("-fx-border-color: #CBD2D9; -fx-border-radius: 10; -fx-padding: 2 8 2 8;");
+        connectivity.setWrapText(true);
+        connectivity.setFont(Font.font(11));
+        connectivity.setManaged(false);
+        connectivity.setVisible(false);
 
         VBox spacer = new VBox();
         VBox.setVgrow(spacer, Priority.ALWAYS);
-        status.getChildren().addAll(message, guidance, step, countdown, progress, attempt, tips, spacer, onDevice);
+        status.getChildren().addAll(message, guidance, step, countdown, progress, attempt, tips, spacer, connectivity, onDevice);
         status.setPrefWidth(300);
         status.setMinWidth(260);
         status.setMaxHeight(Double.MAX_VALUE);
@@ -112,6 +119,26 @@ public final class LivenessCaptureView extends HBox {
         messages = m;
         status.setNodeOrientation(m.isRightToLeft() ? NodeOrientation.RIGHT_TO_LEFT : NodeOrientation.LEFT_TO_RIGHT);
         onDevice.setText(m.ui(LivenessMessages.UI_ON_DEVICE));
+        showConnectivity();
+    }
+
+    /**
+     * Whether the client is online ({@code null}: unknown, badge hidden). Only informs the operator: liveness
+     * runs the same checks either way, and offline the badge says so.
+     */
+    public void setOnline(Boolean isOnline) {
+        online = isOnline;
+        showConnectivity();
+    }
+
+    private void showConnectivity() {
+        boolean known = online != null;
+        connectivity.setVisible(known);
+        connectivity.setManaged(known);
+        if (known) {
+            connectivity.setText("● " + messages.ui(online ? LivenessMessages.UI_ONLINE : LivenessMessages.UI_OFFLINE));
+            connectivity.setTextFill(online ? TEXT_SUCCESS : MUTED);
+        }
     }
 
     /** The oval to draw; must be the capture area of the policy the running session uses. */

@@ -65,7 +65,13 @@ public class FaceLivenessConfig {
         LivenessEngine engine = new OnnxLivenessEngine(new ModelRepository(modelsDir, verifier).activate());
         AuditSink audit = new RegClientAuditSink((event, component, refId, refIdType) ->
                 auditManagerService.audit(AuditEvent.valueOf(event), Components.valueOf(component), refId, refIdType));
-        return new RegClientLiveness(config, engine, audit, Paths.get(".mosipkeys", "liveness-attempts.dat"));
+        RegClientLiveness liveness = new RegClientLiveness(config, engine, audit,
+                Paths.get(".mosipkeys", "liveness-attempts.dat"));
+        liveness.setConnectivity(RegistrationAppHealthCheckUtil::isNetworkAvailable);
+        // While online, look for a newer signed model package every 6 hours; used from the next start.
+        liveness.startModelSync(new ModelSync(URI.create(modelUpdateUrl), repository, verifier,
+                modelsDir.resolve("downloads")), 360);
+        return liveness;
     }
 }
 ```
@@ -76,7 +82,9 @@ public class FaceLivenessConfig {
   instead of silently weakening the policy. See [config/liveness.properties](../config/liveness.properties) for
   every key.
 - **Models:** run from a signed package (`ModelRepository` + `ModelPackageVerifier`). A package that fails
-  verification is never loaded.
+  verification is never loaded. `startModelSync` fetches newer packages only while the connectivity check says
+  online; forged or replayed packages are refused before any model is downloaded, and offline nothing changes.
+- **Connectivity:** only drives the screen's online/offline badge and model sync, never a liveness decision.
 - **Rate limits:** lockouts persist across restarts in the given file. It stores hashed keys only.
 
 ## 3. Audit events
@@ -228,7 +236,8 @@ are the same on all three screens:
 - **After a failed attempt:** guidance tips and Retry. After the last attempt, what happens next (supervisor
   exception, alternate login, or blocked). A lockout shows when it ends.
 - **PAD and binding failures:** only the generic message. Detail goes to the audit trail and log.
-- **Offline:** "Checked on this device · works offline". Liveness does the same thing online and offline.
+- **Online/offline:** a badge, refreshed every 2 s, reads "● Online" or "● Offline · the same liveness checks
+  apply", above "Checked on this device · works offline". Liveness does the same thing online and offline.
 - **Language:** the client language, including right-to-left layout for Arabic.
 
 ## 6. Try it without the client

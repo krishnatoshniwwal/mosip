@@ -53,6 +53,8 @@ KEYS = [
     "liveness.ui.deny",
     "liveness.ui.close",
     "liveness.ui.onDevice",
+    "liveness.ui.online",
+    "liveness.ui.offline",
 ]
 # UI patterns with {n} arguments go through java.text.MessageFormat: apostrophes must be doubled.
 FORMATTED = {"liveness.ui.attempt", "liveness.ui.challenge", "liveness.ui.timeLeft", "liveness.ui.lockedUntil"}
@@ -107,6 +109,8 @@ T["fr"] = ("Français", [
     "Ne pas autoriser",
     "Fermer",
     "Vérifié sur cet appareil · fonctionne hors ligne",
+    "En ligne",
+    "Hors ligne · les mêmes contrôles de vivacité s'appliquent",
 ])
 
 T["ar"] = ("العربية", [
@@ -157,6 +161,8 @@ T["ar"] = ("العربية", [
     "عدم السماح",
     "إغلاق",
     "يتم التحقق على هذا الجهاز · يعمل دون اتصال",
+    "متصل",
+    "غير متصل · تُطبَّق فحوص الحيوية نفسها",
 ])
 
 T["hi"] = ("हिन्दी", [
@@ -207,6 +213,8 @@ T["hi"] = ("हिन्दी", [
     "अनुमति न दें",
     "बंद करें",
     "इसी डिवाइस पर जाँचा जाता है · ऑफ़लाइन भी काम करता है",
+    "ऑनलाइन",
+    "ऑफ़लाइन · सजीवता की वही जाँच लागू होती है",
 ])
 
 T["kn"] = ("ಕನ್ನಡ", [
@@ -257,6 +265,8 @@ T["kn"] = ("ಕನ್ನಡ", [
     "ಅನುಮತಿಸಬೇಡಿ",
     "ಮುಚ್ಚಿ",
     "ಈ ಸಾಧನದಲ್ಲೇ ಪರಿಶೀಲಿಸಲಾಗುತ್ತದೆ · ಆಫ್‌ಲೈನ್‌ನಲ್ಲೂ ಕಾರ್ಯನಿರ್ವಹಿಸುತ್ತದೆ",
+    "ಆನ್‌ಲೈನ್",
+    "ಆಫ್‌ಲೈನ್ · ಅದೇ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆಗಳು ಅನ್ವಯಿಸುತ್ತವೆ",
 ])
 
 T["ta"] = ("தமிழ்", [
@@ -307,6 +317,8 @@ T["ta"] = ("தமிழ்", [
     "அனுமதிக்க வேண்டாம்",
     "மூடு",
     "இந்தச் சாதனத்திலேயே சரிபார்க்கப்படுகிறது · இணையம் இல்லாமலும் செயல்படும்",
+    "இணைப்பில் உள்ளது",
+    "இணைப்பில் இல்லை · அதே உயிர்த்தன்மைச் சரிபார்ப்புகள் பொருந்தும்",
 ])
 
 T["fil"] = ("Filipino", [
@@ -357,6 +369,8 @@ T["fil"] = ("Filipino", [
     "Huwag payagan",
     "Isara",
     "Sinusuri sa device na ito · gumagana kahit offline",
+    "Online",
+    "Offline · pareho pa rin ang pagsusuri kung buhay ang mukha",
 ])
 
 T["am"] = ("አማርኛ", [
@@ -407,6 +421,8 @@ T["am"] = ("አማርኛ", [
     "አትፍቀድ",
     "ዝጋ",
     "በዚህ መሣሪያ ላይ ይረጋገጣል · ያለ ኢንተርኔት ይሠራል",
+    "በመስመር ላይ",
+    "ከመስመር ውጭ · ተመሳሳይ የሕያውነት ፍተሻዎች ይተገበራሉ",
 ])
 
 T["si"] = ("සිංහල", [
@@ -457,6 +473,8 @@ T["si"] = ("සිංහල", [
     "අවසර නොදෙන්න",
     "වසන්න",
     "මෙම උපාංගයේම පරීක්ෂා කෙරේ · අන්තර්ජාලය නොමැතිවද ක්‍රියා කරයි",
+    "සබැඳිව",
+    "නොබැඳිව · එකම සජීවීභාව පරීක්ෂාවන් අදාළ වේ",
 ])
 
 HEADER = """# Face liveness messages: {name} ({lang}). UTF-8, loaded by LivenessMessages through a Reader.

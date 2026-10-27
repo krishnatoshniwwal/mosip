@@ -17,7 +17,10 @@ import io.mosip.registration.liveness.session.FailureReason;
 import io.mosip.registration.liveness.session.LivenessResult;
 import io.mosip.registration.liveness.session.LivenessUpdate;
 import io.mosip.registration.liveness.session.UserMessage;
+import javafx.animation.Animation;
+import javafx.animation.KeyFrame;
 import javafx.animation.PauseTransition;
+import javafx.animation.Timeline;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.NodeOrientation;
@@ -84,6 +87,7 @@ public final class LivenessCaptureDialog<T> {
     private boolean running;
     private boolean closeRequested;
     private boolean gateRetryAvailable;
+    private boolean connectivityCheckRunning;
 
     private LivenessCaptureDialog(Window owner, String title, RegClientLiveness liveness, LivenessWorkflow workflow,
                                   String subjectKey, FaceCaptureDevice device, CaptureStep<T> capture,
@@ -128,7 +132,27 @@ public final class LivenessCaptureDialog<T> {
                 onCancelOrClose();
             }
         });
-        stage.setOnHidden(e -> closed.complete(last));
+        // Connectivity can change while the window is open (cable pulled, Wi-Fi back). The client's check may do
+        // network I/O, so it runs off the FX thread.
+        Timeline connectivityRefresh = new Timeline(new KeyFrame(Duration.ZERO, e -> refreshConnectivity()),
+                new KeyFrame(Duration.seconds(2)));
+        connectivityRefresh.setCycleCount(Animation.INDEFINITE);
+        stage.setOnShown(e -> connectivityRefresh.play());
+        stage.setOnHidden(e -> {
+            connectivityRefresh.stop();
+            closed.complete(last);
+        });
+    }
+
+    private void refreshConnectivity() {
+        if (connectivityCheckRunning) {
+            return;
+        }
+        connectivityCheckRunning = true;
+        CompletableFuture.supplyAsync(liveness::isOnline).whenComplete((online, error) -> Platform.runLater(() -> {
+            connectivityCheckRunning = false;
+            view.setOnline(error == null ? online : Boolean.FALSE);
+        }));
     }
 
     /**

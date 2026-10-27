@@ -71,6 +71,7 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -95,6 +96,7 @@ public final class RegClientDemoApp extends Application {
     private RegClientLiveness liveness;
     private TapDevice device;
     private SimulatedSubject subject;
+    private final AtomicBoolean networkOnline = new AtomicBoolean(true);
     private ComboBox<Presentation> presentation;
     private ComboBox<CaptureBehaviour> duringCapture;
     private Stage stage;
@@ -171,6 +173,7 @@ public final class RegClientDemoApp extends Application {
         }
         device = new TapDevice(raw);
         liveness = new RegClientLiveness(config, engine, trail, null);
+        liveness.setConnectivity(networkOnline::get);
         diagnosticsLog.appendText("Engine: " + engine.info().describe() + "\nDevice: " + raw.info().describe() + "\n\n");
     }
 
@@ -354,7 +357,11 @@ public final class RegClientDemoApp extends Application {
                 return s;
             }
         });
-        HBox bar = new HBox(10, new Label("Language:"), language);
+        // Stands in for RegistrationAppHealthCheckUtil.isNetworkAvailable(): untick to see the offline screens.
+        CheckBox network = new CheckBox("Network online");
+        network.setSelected(networkOnline.get());
+        network.setOnAction(e -> networkOnline.set(network.isSelected()));
+        HBox bar = new HBox(10, new Label("Language:"), language, network);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(8, 12, 8, 12));
         bar.setStyle("-fx-background-color: #F5F7FA; -fx-border-color: transparent transparent #CBD2D9 transparent;");

@@ -26,7 +26,8 @@ in behind interfaces, so no vendor is hard-wired.
 | Cross-session rate limiting with lockout persisted across restarts | |
 | Localised prompts: English, French, Arabic (RTL), Hindi, Kannada, Tamil, Filipino, Amharic, Sinhala | |
 | Signed model packages: ECDSA manifest, rollback protection, atomic install, tamper check at start | |
-| Online model sync: fetches a newer signed package over HTTPS, refuses forged/replayed ones before downloading, keeps the installed one offline | Hooking it into the client's sync job |
+| Online model sync: fetches a newer signed package over HTTPS, refuses forged/replayed ones before downloading, keeps the installed one offline; runs in the background of the Registration Client while online | |
+| Online/offline badge on the capture screen (all 9 languages), toggle it in the `-RegClient` demo | |
 | ISO/IEC 30107-3 evaluation harness: APCER per species, BPCER, BPCER10/20/100, DET, confidence intervals | Evaluation on data collected from target devices |
 | Device interoperability conformance suite + engine performance benchmark | Running it on each supported vendor device |
 | Live webcam engine: YuNet face detection + landmark head pose (turn left/right challenges) | Threshold calibration on recorded live/spoof sessions |
@@ -40,7 +41,7 @@ in behind interfaces, so no vendor is hard-wired.
 | Audit events (no biometric data) and anonymous metrics | |
 | Reference capture UI (Swing) with diagnostic mode | |
 | Explicit camera consent before the device is opened (enforced by the service, audited, translated) | |
-| 201 automated tests | |
+| 205 automated tests | |
 
 The live engine (`liveness-onnx-engine`) detects faces with OpenCV's YuNet model and measures head turns
 from its five landmarks. Smile comes from the MediaPipe Face Mesh model, look up/down from how the mesh's 3D
@@ -59,7 +60,7 @@ Needs JDK 11+. No Maven required: the scripts download JUnit, OpenCV, ONNX Runti
 `-Dmosip.liveness.models=<dir>` at a folder containing `face_detection_yunet_2023mar.onnx`.
 
 ```powershell
-.\build.ps1          # compile + 201 tests
+.\build.ps1          # compile + 205 tests
 .\build.ps1 -Run     # launch LIVE webcam capture & real liveness
 .\build.ps1 -Run -Sim # launch simulated desktop demo (mock device)
 .\build.ps1 -Run -Device sbi:auto   # live capture from an SBI face device (MDS on 127.0.0.1:4501-4600)
