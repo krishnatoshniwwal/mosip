@@ -5,6 +5,7 @@ import io.mosip.registration.liveness.audit.AuditEvent;
 import io.mosip.registration.liveness.audit.AuditEventType;
 import io.mosip.registration.liveness.audit.AuditSink;
 import io.mosip.registration.liveness.camera.DeviceSelector;
+import io.mosip.registration.liveness.camera.SystemCameraSourceCheck;
 import io.mosip.registration.liveness.camera.OpenCvLoader;
 import io.mosip.registration.liveness.challenge.ChallengeType;
 import io.mosip.registration.liveness.config.FailureAction;
@@ -174,6 +175,11 @@ public final class RegClientDemoApp extends Application {
         device = new TapDevice(raw);
         liveness = new RegClientLiveness(config, engine, trail, null);
         liveness.setConnectivity(networkOnline::get);
+        if (!simulated) {
+            SystemCameraSourceCheck sourceCheck = new SystemCameraSourceCheck();
+            sourceCheck.prefetch();
+            liveness.setCameraSourceCheck(sourceCheck);
+        }
         diagnosticsLog.appendText("Engine: " + engine.info().describe() + "\nDevice: " + raw.info().describe() + "\n\n");
     }
 

@@ -15,6 +15,7 @@ import org.opencv.videoio.Videoio;
 
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.Locale;
 
 /**
  * {@link FaceCaptureDevice} implementation backed by OpenCV's {@link VideoCapture}.
@@ -29,6 +30,8 @@ public class OpenCvCameraDevice implements FaceCaptureDevice {
 
     private static final int DEFAULT_WIDTH = 640;
     private static final int DEFAULT_HEIGHT = 480;
+    /** Device IDs of local cameras start with this, followed by the camera index. */
+    public static final String DEVICE_ID_PREFIX = "OPENCV-CAM-";
 
     private final int cameraIndex;
     private final int fps;
@@ -55,7 +58,7 @@ public class OpenCvCameraDevice implements FaceCaptureDevice {
     public OpenCvCameraDevice(int cameraIndex, int fps) {
         this.cameraIndex = cameraIndex;
         this.fps = fps;
-        this.deviceId = "OPENCV-CAM-" + cameraIndex;
+        this.deviceId = DEVICE_ID_PREFIX + cameraIndex;
         this.deviceInfo = new DeviceInfo(
                 deviceId,
                 "OpenCV",
@@ -91,7 +94,7 @@ public class OpenCvCameraDevice implements FaceCaptureDevice {
         }
 
         capture = new VideoCapture();
-        if (!capture.open(cameraIndex)) {
+        if (!capture.open(cameraIndex, backend())) {
             status = DeviceStatus.ERROR;
             throw new DeviceException(
                     DeviceException.Kind.CAMERA_UNAVAILABLE,
@@ -104,6 +107,16 @@ public class OpenCvCameraDevice implements FaceCaptureDevice {
         capture.set(Videoio.CAP_PROP_FRAME_HEIGHT, DEFAULT_HEIGHT);
 
         status = DeviceStatus.READY;
+    }
+
+    /**
+     * On Windows, Media Foundation only, unless OpenCV was told to skip it ({@code OPENCV_VIDEOIO_PRIORITY_MSMF=0}).
+     * OpenCV would otherwise fall back to DirectShow for an index Media Foundation cannot open, and DirectShow also
+     * lists software cameras such as OBS; {@link SystemCameraSourceCheck} relies on this to tell which are reachable.
+     */
+    static int backend() {
+        boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+        return windows && !"0".equals(System.getenv("OPENCV_VIDEOIO_PRIORITY_MSMF")) ? Videoio.CAP_MSMF : Videoio.CAP_ANY;
     }
 
     /**

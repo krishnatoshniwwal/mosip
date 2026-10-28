@@ -46,6 +46,8 @@ public final class LivenessPolicy {
     private final boolean captureBindEnabled;
     private final long captureBindTimeoutMs;
     private final float captureBindMaxFaceShift;
+    private final boolean injectionEnabled;
+    private final VirtualCameraPolicy virtualCameraPolicy;
 
     private LivenessPolicy(Builder b) {
         enabled = b.enabled;
@@ -81,6 +83,8 @@ public final class LivenessPolicy {
         captureBindEnabled = b.captureBindEnabled;
         captureBindTimeoutMs = b.captureBindTimeoutMs;
         captureBindMaxFaceShift = b.captureBindMaxFaceShift;
+        injectionEnabled = b.injectionEnabled;
+        virtualCameraPolicy = b.virtualCameraPolicy;
     }
 
     public static Builder builder() {
@@ -120,7 +124,9 @@ public final class LivenessPolicy {
                 .consentMaxAgeMs(consentMaxAgeMs)
                 .captureBindEnabled(captureBindEnabled)
                 .captureBindTimeoutMs(captureBindTimeoutMs)
-                .captureBindMaxFaceShift(captureBindMaxFaceShift);
+                .captureBindMaxFaceShift(captureBindMaxFaceShift)
+                .injectionEnabled(injectionEnabled)
+                .virtualCameraPolicy(virtualCameraPolicy);
     }
 
     /** Master switch. When false, faces are captured without liveness or PAD checks. */
@@ -183,6 +189,13 @@ public final class LivenessPolicy {
     public long getCaptureBindTimeoutMs() { return captureBindTimeoutMs; }
     /** Largest move of the face centre (fraction of the frame) from the verified face during the capture. */
     public float getCaptureBindMaxFaceShift() { return captureBindMaxFaceShift; }
+    /**
+     * Whether every frame is checked for signs of injection (repeated frames, no sensor noise), which catches a
+     * deepfake or recording fed in through a virtual camera that presentation attack detection cannot see.
+     */
+    public boolean isInjectionEnabled() { return injectionEnabled; }
+    /** What to do when the station has software cameras; applies to local cameras, not SBI devices. */
+    public VirtualCameraPolicy getVirtualCameraPolicy() { return virtualCameraPolicy; }
 
     /** Compact, non-sensitive description for audit records. */
     public String summary() {
@@ -242,6 +255,8 @@ public final class LivenessPolicy {
         private boolean captureBindEnabled = true;
         private long captureBindTimeoutMs = 20_000;
         private float captureBindMaxFaceShift = 0.25f;
+        private boolean injectionEnabled = true;
+        private VirtualCameraPolicy virtualCameraPolicy = VirtualCameraPolicy.BLOCK_REACHABLE;
 
         private Builder() {
         }
@@ -296,6 +311,8 @@ public final class LivenessPolicy {
         public Builder captureBindEnabled(boolean v) { captureBindEnabled = v; return this; }
         public Builder captureBindTimeoutMs(long v) { captureBindTimeoutMs = v; return this; }
         public Builder captureBindMaxFaceShift(float v) { captureBindMaxFaceShift = v; return this; }
+        public Builder injectionEnabled(boolean v) { injectionEnabled = v; return this; }
+        public Builder virtualCameraPolicy(VirtualCameraPolicy v) { virtualCameraPolicy = v; return this; }
 
         /** @throws IllegalArgumentException if the combination of values is invalid */
         public LivenessPolicy build() {
@@ -311,6 +328,7 @@ public final class LivenessPolicy {
             require(maxRetries >= 0, "retry.max must not be negative");
             require(holdStillMs >= 0, "capture.holdStillMs must not be negative");
             require(retryExhaustedAction != null, "retry.exhaustedAction is required");
+            require(virtualCameraPolicy != null, "injection.virtualCameras is required");
             require(!activeAlways || activeEnabled, "active.always requires active.enabled=true");
             require(occlusionGraceMs >= 0, "occlusion.graceMs must not be negative");
             require(consentMaxAgeMs > 0, "consent.maxAgeMs must be positive");

@@ -16,6 +16,7 @@ public final class LivenessMetrics {
     private final AtomicLong failed = new AtomicLong();
     private final AtomicLong cancelled = new AtomicLong();
     private final AtomicLong padDetections = new AtomicLong();
+    private final AtomicLong injectionDetections = new AtomicLong();
     private final AtomicLong activeVerifications = new AtomicLong();
     private final AtomicLong challengesCompleted = new AtomicLong();
     private final AtomicLong challengeMillis = new AtomicLong();
@@ -29,6 +30,7 @@ public final class LivenessMetrics {
     public void cancelled() { cancelled.incrementAndGet(); }
     public void failed() { failed.incrementAndGet(); }
     public void padDetected() { padDetections.incrementAndGet(); }
+    public void injectionDetected() { injectionDetections.incrementAndGet(); }
     public void activeStarted() { activeVerifications.incrementAndGet(); }
     public void frameDropped() { framesDropped.incrementAndGet(); }
 
@@ -62,6 +64,7 @@ public final class LivenessMetrics {
         public final long failed;
         public final long cancelled;
         public final long padDetections;
+        public final long injectionDetections;
         public final long activeVerifications;
         public final long challengesCompleted;
         public final long framesProcessed;
@@ -78,6 +81,7 @@ public final class LivenessMetrics {
             failed = m.failed.get();
             cancelled = m.cancelled.get();
             padDetections = m.padDetections.get();
+            injectionDetections = m.injectionDetections.get();
             activeVerifications = m.activeVerifications.get();
             challengesCompleted = m.challengesCompleted.get();
             framesProcessed = m.framesProcessed.get();
@@ -100,9 +104,9 @@ public final class LivenessMetrics {
         @Override
         public String toString() {
             return String.format("sessions=%d attempts=%d passed=%d (passive-only %d) failed=%d cancelled=%d "
-                            + "pad=%d active=%d retryRate=%.2f failureRate=%.2f avgFrame=%.2fms avgChallenge=%.0fms "
+                            + "pad=%d injection=%d active=%d retryRate=%.2f failureRate=%.2f avgFrame=%.2fms avgChallenge=%.0fms "
                             + "frames=%d dropped=%d",
-                    sessions, attempts, passed, passedPassiveOnly, failed, cancelled, padDetections,
+                    sessions, attempts, passed, passedPassiveOnly, failed, cancelled, padDetections, injectionDetections,
                     activeVerifications, retryRate(), failureRate(), avgFrameProcessingMs, avgChallengeCompletionMs,
                     framesProcessed, framesDropped);
         }

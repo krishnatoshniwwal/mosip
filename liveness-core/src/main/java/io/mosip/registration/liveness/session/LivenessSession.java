@@ -13,12 +13,17 @@ import io.mosip.registration.liveness.challenge.FaceBaseline;
 import io.mosip.registration.liveness.config.CaptureArea;
 import io.mosip.registration.liveness.config.FailureAction;
 import io.mosip.registration.liveness.config.LivenessPolicy;
+import io.mosip.registration.liveness.config.VirtualCameraPolicy;
 import io.mosip.registration.liveness.device.FaceFrame;
 import io.mosip.registration.liveness.engine.AttackType;
 import io.mosip.registration.liveness.engine.EngineInfo;
 import io.mosip.registration.liveness.engine.FaceObservation;
 import io.mosip.registration.liveness.engine.FaceRegion;
 import io.mosip.registration.liveness.engine.FrameAnalysis;
+import io.mosip.registration.liveness.injection.CameraEndpoint;
+import io.mosip.registration.liveness.injection.CameraSourceReport;
+import io.mosip.registration.liveness.injection.InjectionCue;
+import io.mosip.registration.liveness.injection.StreamIntegrityMonitor;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -42,13 +47,15 @@ import java.util.logging.Logger;
  * ACTIVE_CHALLENGE ──action detected──► CHALLENGE_FEEDBACK ──last one─────┘
  *       ▲                                      │ more challenges
  *       └──────────────────────────────────────┘
- * Any phase ──PAD / timeout / wrong action / extra face / face lost──► ATTEMPT_FAILED ──retry()──► PASSIVE_CHECK
+ * Any phase ──PAD / injection / timeout / wrong action / extra face / face lost──► ATTEMPT_FAILED ──retry()──► PASSIVE_CHECK
  *                                                     ├──retry limit reached──► FAILED
  *                                                     └──rate limit reached──► FAILED (LOCKED_OUT)
  * </pre>
  *
  * PAD and face-continuity checks run on every frame in every phase, so a spoof cannot be swapped in
- * after the passive check. Only a face inside the {@link CaptureArea} counts towards liveness or can
+ * after the passive check. Every frame is also checked for signs of injection (a deepfake or recording fed in
+ * through a virtual camera), and a station with a software camera the policy forbids is refused before the
+ * camera is opened. Only a face inside the {@link CaptureArea} counts towards liveness or can
  * be captured; during verification, leaving the oval counts as losing the face. A covered face
  * (mask, sunglasses) is asked to uncover; if it stays covered for the grace period, verification falls
  * back to active challenges that do not need the covered region. The class is deterministic: time is passed in, so tests can drive it
@@ -93,6 +100,8 @@ public final class LivenessSession {
     private FailureAction requiredAction;
     private long lockedUntil;
     private CameraConsent consent;
+    private CameraSourceReport sourceReport = CameraSourceReport.notApplicable();
+    private final StreamIntegrityMonitor integrity = new StreamIntegrityMonitor();
 
     // Per-attempt state, reset by beginAttempt().
     private long phaseStart;
@@ -167,6 +176,11 @@ public final class LivenessSession {
         this.consent = consent;
     }
 
+    /** Where the device's frames can come from, as found before the device is opened; set before {@link #start}. */
+    public synchronized void setCameraSourceReport(CameraSourceReport report) {
+        this.sourceReport = report == null ? CameraSourceReport.notApplicable() : report;
+    }
+
     public synchronized void start(long now) {
         if (state != LivenessState.NOT_STARTED) {
             throw new IllegalStateException("Session already started");
@@ -174,8 +188,9 @@ public final class LivenessSession {
         sessionStart = now;
         metrics.sessionStarted();
         audit(AuditEventType.SESSION_STARTED, now,
-                "engine", engineInfo.describe(), "policy", policy.summary());
-        if (!checkConsent(now)) {
+                "engine", engineInfo.describe(), "policy", policy.summary(),
+                "injection", (policy.isInjectionEnabled() ? "stream-checks" : "off") + "," + policy.getVirtualCameraPolicy());
+        if (!checkConsent(now) || !checkCameraSource(now)) {
             return;
         }
         long until = rateLimited() ? rateLimiter.lockedUntil(rateLimitKey, now) : 0;
@@ -210,6 +225,32 @@ public final class LivenessSession {
         return false;
     }
 
+    /** @return false if the session ended because the station has a software camera the policy does not allow */
+    private boolean checkCameraSource(long now) {
+        if (sourceReport == CameraSourceReport.notApplicable()) {
+            return true;
+        }
+        VirtualCameraPolicy rule = policy.getVirtualCameraPolicy();
+        audit(AuditEventType.CAMERA_SOURCE_CHECKED, now, "result", sourceReport.describe(), "policy", rule.name());
+        List<CameraEndpoint> blocking = !policy.isEnabled() || rule == VirtualCameraPolicy.AUDIT
+                ? Collections.emptyList()
+                : rule == VirtualCameraPolicy.BLOCK_INSTALLED
+                ? sourceReport.virtualCameras() : sourceReport.reachableVirtualCameras();
+        if (blocking.isEmpty()) {
+            return true;
+        }
+        metrics.injectionDetected();
+        audit(AuditEventType.INJECTION_DETECTED, now, "cues", "[" + InjectionCue.VIRTUAL_CAMERA + "]",
+                "cameras", blocking.toString(), "phase", "START");
+        finalReason = FailureReason.CAMERA_NOT_TRUSTED;
+        requiredAction = FailureAction.BLOCK;
+        state = LivenessState.FAILED;
+        metrics.failed();
+        audit(AuditEventType.LIVENESS_FAILED, now, "reason", finalReason.name(), "requiredAction", requiredAction.name());
+        complete(LivenessOutcome.FAILED, now);
+        return false;
+    }
+
     private boolean rateLimited() {
         return rateLimiter != null && policy.isEnabled() && policy.isRateLimitEnabled();
     }
@@ -222,6 +263,9 @@ public final class LivenessSession {
         framesThisAttempt++;
         boolean strict = policy.isEnabled() && state != LivenessState.PASSIVE_CHECK;
         List<FaceObservation> faces = analysis.getFaces();
+        if (policy.isEnabled() && policy.isInjectionEnabled() && checkInjection(frame, faces.size() == 1, now)) {
+            return;
+        }
 
         if (faces.size() > 1) {
             multiFaceFrames++;
@@ -242,6 +286,19 @@ public final class LivenessSession {
         if (state.acceptsFrames()) {
             emit(now);
         }
+    }
+
+    /** @return true if the attempt failed because the stream shows signs of injection */
+    private boolean checkInjection(FaceFrame frame, boolean oneFace, long now) {
+        Set<InjectionCue> cues = integrity.update(frame, oneFace);
+        if (cues.isEmpty()) {
+            return false;
+        }
+        metrics.injectionDetected();
+        audit(AuditEventType.INJECTION_DETECTED, now, "cues", cues.toString(),
+                "measurements", integrity.diagnostics(), "phase", state.name());
+        failAttempt(FailureReason.INJECTION_DETECTED, "cues=" + cues, now);
+        return true;
     }
 
     /** @return true if the attempt ended while processing this face */
@@ -626,6 +683,7 @@ public final class LivenessSession {
         framesThisAttempt = 0;
         passive = new PassiveEvaluator();
         padAttackFrames = 0;
+        integrity.reset();
         noFaceFrames = 0;
         multiFaceFrames = 0;
         poorQualityFrames = 0;
@@ -776,6 +834,9 @@ public final class LivenessSession {
                 }
                 if (finalReason == FailureReason.CONSENT_DECLINED) {
                     return UserMessage.FAIL_CONSENT;
+                }
+                if (finalReason == FailureReason.CAMERA_NOT_TRUSTED) {
+                    return UserMessage.FAIL_CAMERA_NOT_TRUSTED;
                 }
                 if (finalReason != FailureReason.MAX_RETRIES_EXCEEDED) {
                     return UserMessage.FINAL_BLOCKED;

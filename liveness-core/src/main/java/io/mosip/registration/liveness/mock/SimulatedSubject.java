@@ -33,7 +33,12 @@ public final class SimulatedSubject {
         /** A pre-recorded video of the person that blinks and sways on its own and evades passive PAD. */
         VIDEO_REPLAY,
         NO_FACE,
-        TWO_FACES
+        TWO_FACES,
+        /**
+         * A real-time deepfake of the person fed through a virtual camera: it follows every prompt and passes PAD,
+         * because no camera ever sees it. Only the frames themselves give it away (see {@link MockFaceDevice}).
+         */
+        INJECTED_STREAM
     }
 
     public enum ResponseMode {

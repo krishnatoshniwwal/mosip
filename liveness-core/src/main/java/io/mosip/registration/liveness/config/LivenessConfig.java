@@ -73,6 +73,9 @@ public final class LivenessConfig {
         KEYS.put("capture.bind.enabled", (b, v) -> b.captureBindEnabled(parseBoolean(v)));
         KEYS.put("capture.bind.timeoutMs", (b, v) -> b.captureBindTimeoutMs(parseLong(v)));
         KEYS.put("capture.bind.maxFaceShift", (b, v) -> b.captureBindMaxFaceShift(parseFloat(v)));
+        KEYS.put("injection.enabled", (b, v) -> b.injectionEnabled(parseBoolean(v)));
+        KEYS.put("injection.virtualCameras", (b, v) -> b.virtualCameraPolicy(
+                VirtualCameraPolicy.valueOf(v.trim().toUpperCase(Locale.ROOT))));
     }
 
     private final Map<LivenessWorkflow, LivenessPolicy> policies;

@@ -1,7 +1,9 @@
 package io.mosip.registration.liveness.tools;
 
 import io.mosip.registration.liveness.camera.DeviceSelector;
+import io.mosip.registration.liveness.camera.OpenCvCameraDevice;
 import io.mosip.registration.liveness.camera.OpenCvLoader;
+import io.mosip.registration.liveness.camera.SystemCameraSourceCheck;
 import io.mosip.registration.liveness.conformance.ConformanceReport;
 import io.mosip.registration.liveness.conformance.DeviceConformanceSuite;
 import io.mosip.registration.liveness.conformance.EngineBenchmark;
@@ -10,6 +12,10 @@ import io.mosip.registration.liveness.device.DeviceLevel;
 import io.mosip.registration.liveness.device.FaceCaptureDevice;
 import io.mosip.registration.liveness.device.FaceFrame;
 import io.mosip.registration.liveness.engine.LivenessEngine;
+import io.mosip.registration.liveness.injection.CameraEndpoint;
+import io.mosip.registration.liveness.injection.CameraSourceReport;
+import io.mosip.registration.liveness.injection.InjectionCue;
+import io.mosip.registration.liveness.injection.StreamIntegrityMonitor;
 import io.mosip.registration.liveness.mock.MockFaceDevice;
 import io.mosip.registration.liveness.mock.SimulatedLivenessEngine;
 import io.mosip.registration.liveness.mock.SimulatedSubject;
@@ -27,6 +33,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 
 /**
  * {@code interop} subcommand: runs a face capture device through {@link DeviceConformanceSuite} and
@@ -121,12 +128,49 @@ final class InteropTestTool {
                     System.out.println("  WARNING: few frames had a face; sit in front of the camera and re-run for real latency");
                 }
                 report.append(r.toMarkdown(nominalFps));
+                report.append(streamIntegrity(frames));
             }
+        }
+        if (device.info().getDeviceId().startsWith(OpenCvCameraDevice.DEVICE_ID_PREFIX)) {
+            report.append(cameraSources(new SystemCameraSourceCheck().current()));
         }
         engine.close();
         Files.write(out, report.toString().getBytes(StandardCharsets.UTF_8));
         System.out.println((conformance.passed() ? "PASS" : "FAIL") + " - report: " + out.toAbsolutePath());
         return conformance.passed() ? 0 : 1;
+    }
+
+    /**
+     * Runs the injection stream checks over the captured frames: on a real camera there are no repeats and the
+     * unchanged-pixel fraction sits well below the threshold; the margin is the evidence for this device.
+     */
+    static String streamIntegrity(List<FaceFrame> frames) {
+        StreamIntegrityMonitor monitor = new StreamIntegrityMonitor();
+        Set<InjectionCue> cues = Collections.emptySet();
+        for (FaceFrame f : frames) {
+            cues = monitor.update(f, true);
+        }
+        System.out.println("Stream integrity: " + monitor.diagnostics() + (cues.isEmpty() ? "" : " INJECTION CUES " + cues));
+        return "\n## Stream integrity (injection attack detection)\n\n"
+                + "Measured on the " + frames.size() + " captured frames. A camera sensor shows no repeated frames and an "
+                + "unchanged-pixel fraction well below " + StreamIntegrityMonitor.noiselessThreshold() + ".\n\n"
+                + "- " + monitor.diagnostics() + "\n"
+                + "- Verdict: " + (cues.isEmpty() ? "camera sensor" : "**injection cues " + cues + "**") + "\n";
+    }
+
+    static String cameraSources(CameraSourceReport sources) {
+        System.out.println("Camera sources: " + sources.describe());
+        StringBuilder md = new StringBuilder("\n## Camera sources (virtual camera check)\n\n");
+        if (!sources.isInspected()) {
+            return md.append("Not listed: ").append(sources.getDetail()).append('\n').toString();
+        }
+        md.append("| Camera | Hardware ID | Virtual | Openable by OpenCV |\n|---|---|---|---|\n");
+        for (CameraEndpoint c : sources.getCameras()) {
+            md.append("| ").append(c.getName()).append(" | `").append(c.getHardwareId()).append("` | ")
+                    .append(c.isVirtual() ? c.getVirtualReason() : "no").append(" | ")
+                    .append(c.isReachable() ? "yes" : "no").append(" |\n");
+        }
+        return md.toString();
     }
 
     /** Asks on the terminal before turning on a real camera. No answer (e.g. no terminal) means no. */

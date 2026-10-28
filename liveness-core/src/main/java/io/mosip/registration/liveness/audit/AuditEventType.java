@@ -23,7 +23,11 @@ public enum AuditEventType {
     /** The person in view changed, left, or turned into an attack while the device capture ran. */
     CAPTURE_BINDING_BROKEN("REG-LIV-018"),
     /** The device capture itself failed or timed out. */
-    CAPTURE_FAILED("REG-LIV-019");
+    CAPTURE_FAILED("REG-LIV-019"),
+    /** The station's cameras were listed before the device was opened; records any software cameras found. */
+    CAMERA_SOURCE_CHECKED("REG-LIV-020"),
+    /** The frames show signs of injection (repeated frames, no sensor noise) or came from a blocked virtual camera. */
+    INJECTION_DETECTED("REG-LIV-021");
 
     private final String code;
 

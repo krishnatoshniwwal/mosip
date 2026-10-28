@@ -105,6 +105,24 @@ class LivenessConfigTest {
         assertInvalid(P + "capture.bind.maxFaceShift", "1.5");
     }
 
+    @Test
+    void injectionDetectionIsOnByDefaultAndConfigurablePerWorkflow() {
+        LivenessPolicy defaults = LivenessConfig.defaults().policyFor(LivenessWorkflow.OPERATOR_AUTHENTICATION);
+        assertTrue(defaults.isInjectionEnabled());
+        assertEquals(VirtualCameraPolicy.BLOCK_REACHABLE, defaults.getVirtualCameraPolicy());
+
+        Properties props = new Properties();
+        props.setProperty(P + "supervisor.injection.virtualCameras", "block_installed");
+        props.setProperty(P + "resident.injection.enabled", "false");
+        LivenessConfig config = LivenessConfig.fromProperties(props);
+        assertEquals(VirtualCameraPolicy.BLOCK_INSTALLED,
+                config.policyFor(LivenessWorkflow.SUPERVISOR_AUTHENTICATION).getVirtualCameraPolicy());
+        assertFalse(config.policyFor(LivenessWorkflow.RESIDENT_REGISTRATION).isInjectionEnabled());
+        assertTrue(config.policyFor(LivenessWorkflow.OPERATOR_AUTHENTICATION).isInjectionEnabled());
+
+        assertInvalid(P + "injection.virtualCameras", "SOMETIMES");
+    }
+
     private static void assertInvalid(String key, String value) {
         Properties props = new Properties();
         props.setProperty(key, value);

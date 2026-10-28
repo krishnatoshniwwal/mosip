@@ -9,9 +9,11 @@ import io.mosip.registration.liveness.device.FaceCaptureDevice;
 import io.mosip.registration.liveness.device.FaceFrame;
 import io.mosip.registration.liveness.device.FrameListener;
 import io.mosip.registration.liveness.device.PixelFormat;
+import io.mosip.registration.liveness.engine.FaceObservation;
 
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.Random;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -20,9 +22,14 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
 /**
- * Mock L0/L1 face device for development and automated tests. Streams small placeholder frames
- * carrying the {@link SimulatedSubject}'s state, and can simulate being unavailable, disconnecting
- * mid-stream and sending corrupt frames.
+ * Mock L0/L1 face device for development and automated tests. Streams small frames carrying the
+ * {@link SimulatedSubject}'s state, and can simulate being unavailable, disconnecting mid-stream and
+ * sending corrupt frames.
+ *
+ * <p>The pixels are a coarse picture of the scene. Whatever is in front of the camera, the frames carry
+ * sensor noise; an {@link SimulatedSubject.Presentation#INJECTED_STREAM injected stream} does not, and repeats
+ * every other frame like a deepfake renderer running at half the virtual camera's rate. Injection detection
+ * therefore runs on these pixels exactly as it does on a real camera's.
  */
 public final class MockFaceDevice implements FaceCaptureDevice {
 
@@ -35,6 +42,8 @@ public final class MockFaceDevice implements FaceCaptureDevice {
     private final LongSupplier clock;
     private final AtomicLong sequence = new AtomicLong();
     private final AtomicInteger corruptFrames = new AtomicInteger();
+    private final Random sensorNoise = new Random(7);
+    private byte[] injectedFrame;
 
     private volatile DeviceStatus status = DeviceStatus.DISCONNECTED;
     private volatile boolean available = true;
@@ -104,13 +113,47 @@ public final class MockFaceDevice implements FaceCaptureDevice {
     }
 
     /** Produces one frame now. Used by the stream and directly by tests that drive time themselves. */
-    public FaceFrame captureFrame() {
-        byte[] data = new byte[WIDTH * HEIGHT];
+    public synchronized FaceFrame captureFrame() {
+        long seq = sequence.incrementAndGet();
+        SimulatedFrameTruth truth = subject.sample();
+        byte[] data;
         if (corruptFrames.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {
             data = new byte[WIDTH * HEIGHT / 2];
+        } else if (truth.getPresentation() == SimulatedSubject.Presentation.INJECTED_STREAM) {
+            if (injectedFrame == null || seq % 2 == 0) {
+                injectedFrame = render(truth, false);
+            }
+            data = injectedFrame;
+        } else {
+            injectedFrame = null;
+            data = render(truth, true);
         }
-        return new FaceFrame(info.getDeviceId(), sequence.incrementAndGet(), clock.getAsLong(), WIDTH, HEIGHT,
-                PixelFormat.GRAY8, data, Collections.singletonMap(SimulatedFrameTruth.METADATA_KEY, subject.sample()));
+        return new FaceFrame(info.getDeviceId(), seq, clock.getAsLong(), WIDTH, HEIGHT,
+                PixelFormat.GRAY8, data, Collections.singletonMap(SimulatedFrameTruth.METADATA_KEY, truth));
+    }
+
+    /** Background gradient with a brighter ellipse per face; with {@code noise}, ±3 levels of sensor noise. */
+    private byte[] render(SimulatedFrameTruth truth, boolean noise) {
+        byte[] data = new byte[WIDTH * HEIGHT];
+        for (int y = 0; y < HEIGHT; y++) {
+            for (int x = 0; x < WIDTH; x++) {
+                int v = 60 + 2 * x + y;
+                for (FaceObservation f : truth.getFaces()) {
+                    float dx = (x + 0.5f) / WIDTH - f.getCenterX();
+                    float dy = (y + 0.5f) / HEIGHT - f.getCenterY();
+                    float rx = f.getWidth() / 2;
+                    float ry = f.getHeight() / 2;
+                    if (rx > 0 && ry > 0 && dx * dx / (rx * rx) + dy * dy / (ry * ry) <= 1) {
+                        v = 170;
+                    }
+                }
+                if (noise) {
+                    v += sensorNoise.nextInt(7) - 3;
+                }
+                data[y * WIDTH + x] = (byte) Math.max(0, Math.min(255, v));
+            }
+        }
+        return data;
     }
 
     /** Drops the stream as if the cable were pulled. */

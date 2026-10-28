@@ -11,6 +11,7 @@ import io.mosip.registration.liveness.gate.CaptureStep;
 import io.mosip.registration.liveness.gate.GateHandle;
 import io.mosip.registration.liveness.gate.GateListener;
 import io.mosip.registration.liveness.gate.LivenessGate;
+import io.mosip.registration.liveness.injection.CameraSourceCheck;
 import io.mosip.registration.liveness.model.ModelSync;
 import io.mosip.registration.liveness.service.FaceLivenessService;
 import io.mosip.registration.liveness.session.AttemptRateLimiter;
@@ -61,6 +62,14 @@ public final class RegClientLiveness implements AutoCloseable {
                                                FaceCaptureDevice device, CaptureStep<T> capture,
                                                GateListener<T> listener) {
         return gate.start(workflow, subjectKey, consent, device, capture, listener);
+    }
+
+    /**
+     * Lists where a local camera's frames can come from before each session, so a station with a software camera
+     * is refused (see {@code injection.virtualCameras}). Not needed for SBI devices, which the MDS vouches for.
+     */
+    public void setCameraSourceCheck(CameraSourceCheck check) {
+        service.setCameraSourceCheck(check);
     }
 
     /** Whether the workflow's policy has liveness switched on ({@code mosip.registration.liveness[.<workflow>].enabled}). */

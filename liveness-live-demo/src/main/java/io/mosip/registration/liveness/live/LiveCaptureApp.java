@@ -4,6 +4,7 @@ import io.mosip.registration.liveness.LivenessWorkflow;
 import io.mosip.registration.liveness.audit.AuditEvent;
 import io.mosip.registration.liveness.audit.AuditSink;
 import io.mosip.registration.liveness.camera.DeviceSelector;
+import io.mosip.registration.liveness.camera.SystemCameraSourceCheck;
 import io.mosip.registration.liveness.camera.OpenCvLoader;
 import io.mosip.registration.liveness.config.LivenessConfig;
 import io.mosip.registration.liveness.device.DeviceException;
@@ -120,6 +121,10 @@ public final class LiveCaptureApp {
 
         AuditSink audit = event -> SwingUtilities.invokeLater(() -> appendAudit(event));
         this.service = new FaceLivenessService(config, engine, audit);
+        // Refuses a station with a software camera (deepfake injection) before the webcam is opened.
+        SystemCameraSourceCheck sourceCheck = new SystemCameraSourceCheck();
+        sourceCheck.prefetch();
+        this.service.setCameraSourceCheck(sourceCheck);
     }
 
     /**

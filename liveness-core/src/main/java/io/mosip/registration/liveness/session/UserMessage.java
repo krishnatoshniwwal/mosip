@@ -35,6 +35,8 @@ public enum UserMessage {
     FAIL_DEVICE("liveness.fail.device", "The face capture device is not available. Please try again."),
     FAIL_POSITION("liveness.fail.position", "We could not see your face inside the oval. Please try again."),
     FAIL_CONSENT("liveness.fail.consent", "Face capture cannot continue without permission to use the camera."),
+    FAIL_CAMERA_NOT_TRUSTED("liveness.fail.cameraNotTrusted",
+            "This camera cannot be used for face verification. Please use the approved face capture device."),
     FAIL_OCCLUDED("liveness.fail.occluded", "Your face appears to be covered. Please uncover your face and try again."),
     FINAL_BLOCKED("liveness.final.blocked",
             "Face verification could not be completed. Please contact your administrator."),

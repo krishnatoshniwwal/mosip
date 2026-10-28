@@ -10,6 +10,10 @@ authentication and supervisor authentication, using a **hybrid passive → activ
    authentication completes, only when every check passes.
 4. Only a face **inside the on-screen oval** counts. A face elsewhere in the camera's view is ignored, and
    the person is told to move into the oval, closer or back.
+5. **Injection attacks** are caught too. A real-time deepfake fed through a virtual camera passes PAD and
+   every challenge, because no camera ever sees it. Before the webcam opens, the station's cameras are checked
+   for software cameras (OBS, ManyCam, …). Every frame is also checked against the physics of a real sensor:
+   no bit-identical repeats, and visible read noise ([details](docs/DESIGN.md#injection-attack-detection)).
 
 Everything runs locally, so it behaves the same online and offline. Devices and liveness technologies plug
 in behind interfaces, so no vendor is hard-wired.
@@ -22,6 +26,7 @@ in behind interfaces, so no vendor is hard-wired.
 | Blink (MediaPipe Iris eyelid contour), smile and look up/down (MediaPipe Face Mesh) challenges | Tuning the pitch angle on recorded sessions |
 | Enforced capture oval (position + distance), drawn from the same config | Calibrating replay/occlusion thresholds on real attack data |
 | Replay attack cues: moiré, lighting uniformity, bezel/frame edges | Native-speaker review of translations |
+| Injection attack detection (CEN/TS 18099): virtual camera check before the camera opens (Windows/Linux/macOS), per-frame stream integrity (repeated frames, missing sensor noise) on any device, simulated deepfake scenario | Measuring the noise margin on each supported camera (`interop` report) |
 | Occlusion handling (mask, scarf, sunglasses) with region-safe challenge fallback | |
 | Cross-session rate limiting with lockout persisted across restarts | |
 | Localised prompts: English, French, Arabic (RTL), Hindi, Kannada, Tamil, Filipino, Amharic, Sinhala | |
@@ -41,7 +46,7 @@ in behind interfaces, so no vendor is hard-wired.
 | Audit events (no biometric data) and anonymous metrics | |
 | Reference capture UI (Swing) with diagnostic mode | |
 | Explicit camera consent before the device is opened (enforced by the service, audited, translated) | |
-| 205 automated tests | |
+| 230 automated tests | |
 
 The live engine (`liveness-onnx-engine`) detects faces with OpenCV's YuNet model and measures head turns
 from its five landmarks. Smile comes from the MediaPipe Face Mesh model, look up/down from how the mesh's 3D
@@ -60,7 +65,7 @@ Needs JDK 11+. No Maven required: the scripts download JUnit, OpenCV, ONNX Runti
 `-Dmosip.liveness.models=<dir>` at a folder containing `face_detection_yunet_2023mar.onnx`.
 
 ```powershell
-.\build.ps1          # compile + 205 tests
+.\build.ps1          # compile + 230 tests
 .\build.ps1 -Run     # launch LIVE webcam capture & real liveness
 .\build.ps1 -Run -Sim # launch simulated desktop demo (mock device)
 .\build.ps1 -Run -Device sbi:auto   # live capture from an SBI face device (MDS on 127.0.0.1:4501-4600)
@@ -73,8 +78,9 @@ mvn verify           # with Maven
 ```
 
 In the demo, pick a workflow and press **Start**. Use the *Device simulator* bar to choose who or what is in
-front of the camera (live person, low passive score, printed photo, screen, video replay, nobody, two
-people, beside the oval, too far, wearing a mask, wearing sunglasses) and how they respond (follow / ignore / wrong action / manual with keys **B S ← → ↑ ↓**). Tick
+front of the camera (live person, low passive score, printed photo, screen, video replay, deepfake injected
+through a virtual camera, nobody, two people, beside the oval, too far, wearing a mask, wearing sunglasses) and how they respond (follow / ignore / wrong action / manual with keys **B S ← → ↑ ↓**). Tick
+**OBS Virtual Camera installed on station** to see a session refused before the camera opens, and
 **Diagnostic mode** to see the audit trail and metrics. Both demos have a **Language** picker for the
 translated prompts. The demo reads `config/liveness.properties`.
 

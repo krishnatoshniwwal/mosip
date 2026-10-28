@@ -91,7 +91,9 @@ final class FacePreviewPanel extends JPanel {
             centered(g, state.isTerminal() ? "Camera released" : "Camera idle - press Start", w / 2, h / 2);
         } else {
             drawPresentationMedium(g, t.getPresentation(), w, h);
-            boolean flat = t.getPresentation() != Presentation.LIVE && t.getPresentation() != Presentation.TWO_FACES;
+            // An injected deepfake looks exactly like a live face; only its frames give it away.
+            boolean flat = t.getPresentation() != Presentation.LIVE && t.getPresentation() != Presentation.TWO_FACES
+                    && t.getPresentation() != Presentation.INJECTED_STREAM;
             for (FaceObservation face : t.getFaces()) {
                 drawFace(g, face, w, h, flat);
             }
@@ -188,6 +190,11 @@ final class FacePreviewPanel extends JPanel {
                         new int[] {(int) y, (int) y, (int) (y + mh * 0.5)}, 3));
                 break;
             }
+            case INJECTED_STREAM:
+                g.setColor(new Color(0xC0392B));
+                g.setFont(g.getFont().deriveFont(Font.BOLD, 12f));
+                g.drawString("Source: OBS Virtual Camera <- real-time deepfake", 12, h - 14);
+                break;
             default:
                 break;
         }

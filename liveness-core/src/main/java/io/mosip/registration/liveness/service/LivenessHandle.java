@@ -8,6 +8,8 @@ import io.mosip.registration.liveness.device.FrameListener;
 import io.mosip.registration.liveness.engine.FrameAnalysis;
 import io.mosip.registration.liveness.engine.LivenessEngine;
 import io.mosip.registration.liveness.engine.LivenessEngineException;
+import io.mosip.registration.liveness.injection.CameraSourceCheck;
+import io.mosip.registration.liveness.injection.CameraSourceReport;
 import io.mosip.registration.liveness.session.FailureReason;
 import io.mosip.registration.liveness.session.LivenessListener;
 import io.mosip.registration.liveness.session.LivenessResult;
@@ -45,6 +47,7 @@ public final class LivenessHandle {
     private final LongSupplier clock;
     private final LivenessListener listener;
     private final AtomicReference<LivenessResult> finished;
+    private final CameraSourceCheck sourceCheck;
     private final CompletableFuture<LivenessResult> result = new CompletableFuture<>();
 
     private final ExecutorService worker;
@@ -60,7 +63,8 @@ public final class LivenessHandle {
     private int consecutiveEngineErrors;
 
     LivenessHandle(LivenessSession session, FaceCaptureDevice device, LivenessEngine engine, LivenessMetrics metrics,
-                   LongSupplier clock, LivenessListener listener, AtomicReference<LivenessResult> finished) {
+                   LongSupplier clock, LivenessListener listener, AtomicReference<LivenessResult> finished,
+                   CameraSourceCheck sourceCheck) {
         this.session = session;
         this.device = device;
         this.engine = engine;
@@ -68,6 +72,7 @@ public final class LivenessHandle {
         this.clock = clock;
         this.listener = listener;
         this.finished = finished;
+        this.sourceCheck = sourceCheck;
         String name = "liveness-" + session.getSessionId().substring(0, 8);
         this.worker = Executors.newSingleThreadExecutor(r -> daemon(r, name));
         this.ticker = Executors.newSingleThreadScheduledExecutor(r -> daemon(r, name + "-tick"));
@@ -81,6 +86,7 @@ public final class LivenessHandle {
             afterStep();
         }), TICK_MS, TICK_MS, TimeUnit.MILLISECONDS);
         submit(() -> {
+            session.setCameraSourceReport(inspectSource());
             session.start(clock.getAsLong());
             // Never touch the camera for a session that ended at start (no consent, locked out).
             if (!session.state().isTerminal()) {
@@ -118,6 +124,16 @@ public final class LivenessHandle {
             session.cancel(clock.getAsLong());
             afterStep();
         });
+    }
+
+    /** Lists the device's possible frame sources without opening it; a failed listing does not stop the session. */
+    private CameraSourceReport inspectSource() {
+        try {
+            return sourceCheck.inspect(device.info());
+        } catch (RuntimeException e) {
+            LOG.log(Level.WARNING, "Camera source check failed", e);
+            return CameraSourceReport.failed("check failed: " + e.getMessage());
+        }
     }
 
     private void openAndStream() {

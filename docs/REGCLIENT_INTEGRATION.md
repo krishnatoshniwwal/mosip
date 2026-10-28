@@ -114,6 +114,8 @@ REG_LIVENESS_CONSENT_NOT_GIVEN("REG-LIV-016", USER_EVENT.getCode(), "REG_LIVENES
 REG_LIVENESS_CAPTURE_BOUND("REG-LIV-017", SYSTEM_EVENT.getCode(), "REG_LIVENESS_CAPTURE_BOUND", "Face liveness: capture tied to the verified person"),
 REG_LIVENESS_CAPTURE_BINDING_BROKEN("REG-LIV-018", SYSTEM_EVENT.getCode(), "REG_LIVENESS_CAPTURE_BINDING_BROKEN", "Face liveness: person changed during capture"),
 REG_LIVENESS_CAPTURE_FAILED("REG-LIV-019", SYSTEM_EVENT.getCode(), "REG_LIVENESS_CAPTURE_FAILED", "Face liveness: device capture failed"),
+REG_LIVENESS_CAMERA_SOURCE_CHECKED("REG-LIV-020", SYSTEM_EVENT.getCode(), "REG_LIVENESS_CAMERA_SOURCE_CHECKED", "Face liveness: station cameras listed"),
+REG_LIVENESS_INJECTION_DETECTED("REG-LIV-021", SYSTEM_EVENT.getCode(), "REG_LIVENESS_INJECTION_DETECTED", "Face liveness: injected frames or virtual camera"),
 ```
 
 Components: resident capture uses `REG_BIOMETRICS`, operator login uses `LOGIN`, and supervisor

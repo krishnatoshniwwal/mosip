@@ -131,6 +131,7 @@ stateDiagram-v2
 |---|---|
 | Face must be inside the capture oval (`capture.area.*`) to count or be captured; leaving it during verification fails the attempt | capturing a bystander or a face held up at the edge of the view |
 | PAD verdict (model + replay cues); `pad.minAttackFrames` flagged frames in an attempt reject it | print, screen, replay, mask |
+| Stream integrity: repeated frames or no sensor noise → fail (see *Injection attack detection*) | deepfake, video or still injected through a virtual camera |
 | More than one face after passive → fail | an accomplice performing the action for a photo |
 | Face-centre jump > 25 % of the frame between frames → fail | swapping media mid-session |
 | Face out of view > 1.5 s once verification started → fail | swapping media off-camera |
@@ -195,6 +196,81 @@ A full bezel alone, or strong moiré on flat lighting, reaches that threshold; u
 can, because evenly front-lit registration desks also look flat. The indicators (`PadIndicator`) go to the
 audit trail only. The thresholds are first estimates validated on synthetic images and must be calibrated
 on recorded bona fide and attack sessions (§8).
+
+### Injection attack detection
+
+Every check above looks at what is *in front of* the camera. A **data injection attack** goes around the
+camera instead. A real-time deepfake (DeepFaceLive, face-swap tools), a recorded video or a still image is fed
+into a virtual camera (OBS Virtual Camera, ManyCam, v4l2loopback), and the client opens that like any webcam.
+The frames show a convincing live face. It blinks, smiles and turns on request because the attacker
+drives the deepfake, and the anti-spoofing model sees no paper, screen or bezel. ISO/IEC 30107 PAD does not
+cover this. CEN/TS 18099 (biometric data injection attack detection) does. The test
+`injectedDeepfakePassesPadAndChallengesWhenInjectionDetectionIsOff` shows the gap: the simulated deepfake passes
+PAD and three random challenges. With injection detection on, it is rejected in the passive phase, before any
+challenge is issued.
+
+Two independent layers, both on by default:
+
+```mermaid
+flowchart LR
+    S[Session start] --> L["Camera source check<br/>(before the camera opens)"]
+    L -->|software camera the policy forbids| B[CAMERA_NOT_TRUSTED<br/>terminal, BLOCK]
+    L -->|ok| O[Open device] --> F["Every frame:<br/>StreamIntegrityMonitor"]
+    F -->|repeated frames or no sensor noise| X[INJECTION_DETECTED<br/>attempt fails]
+    F -->|camera sensor| N[Normal liveness and PAD]
+```
+
+**1. Camera source check (provenance).** `CameraSourceCheck` runs on the worker thread before the device is
+opened. The desktop implementation (`SystemCameraSourceCheck`) lists the station's cameras:
+
+| Platform | Source | Marked virtual when |
+|---|---|---|
+| Windows | Plug and Play cameras (`Win32_PnPEntity`, classes Camera/Image) and DirectShow video sources (registry) | name matches a known product (OBS, ManyCam, XSplit, Snap Camera, DroidCam, NVIDIA Broadcast, …), or the instance ID is a software device (`SWD\VCAMDEVAPI`, Windows 11 virtual cameras) or root-enumerated (`ROOT\`) |
+| Linux | `/sys/class/video4linux` | the device lives under `/sys/devices/virtual` (v4l2loopback), or name match |
+| macOS | `system_profiler SPCameraDataType` | name match |
+
+Whether a virtual camera matters depends on whether the capture can reach it. On Windows the webcam is opened
+through Media Foundation only (`OpenCvCameraDevice.backend()`). Without that, OpenCV falls back to DirectShow
+for an index Media Foundation cannot open, and DirectShow lists OBS. So a DirectShow-only filter is
+installed but *not reachable*, and Windows 11 software cameras are reachable. `injection.virtualCameras`
+decides:
+
+| Value | Session refused when |
+|---|---|
+| `BLOCK_REACHABLE` (default) | a virtual camera the capture backend can open is present |
+| `BLOCK_INSTALLED` | any virtual camera software is installed: hardening for managed registration stations |
+| `AUDIT` | never; the cameras are recorded in `CAMERA_SOURCE_CHECKED` |
+
+A refused session ends with `CAMERA_NOT_TRUSTED`, terminal and `BLOCK`, before the camera is turned on, as for
+missing consent. The operator sees "This camera cannot be used for face verification. Please use the approved
+face capture device." The listing is cached for a minute and prefetched at application start (about 2 s on
+Windows). If it fails, the session continues on the stream checks alone and the failure is audited. SBI
+devices are not listed: the MDS and its signed device certificate vouch for them.
+
+**2. Stream integrity (every frame, any device).** `StreamIntegrityMonitor` looks at the pixels. It does not
+depend on what the device reports, so it also covers a virtual camera the listing does not recognise, an
+SBI or Android source, and a capture path tampered with below the operating system:
+
+| Cue | Physics | Rule |
+|---|---|---|
+| `REPEATED_FRAMES` | A sensor's read noise makes two real frames differ in some pixel. Injection pipelines repeat frames whenever the source (a deepfake renderer, a 24 fps video, a still) runs slower than the virtual camera's 30 fps | ≥ 3 bit-identical frames (CRC32) among the last 30 face frames. Works on JPEG streams without decoding |
+| `NO_SENSOR_NOISE` | On a sensor most mid-tone pixels change by at least one level between frames even when nothing moves. Rendered frames and decoded video copy static areas exactly | median fraction of unchanged mid-tone pixels (luma 16–239, sparse grid, green channel, never averaged) ≥ 0.92 over ≥ 12 frame pairs |
+
+Only frames with exactly one face and some contrast count, so a covered lens or a black frame is not taken for
+injection. Motion only *lowers* the unchanged fraction, so a moving person cannot trigger the noise cue. Either
+cue fails the attempt with `INJECTION_DETECTED`, which uses up an attempt like PAD. The person sees the
+generic failure message, and the cues and measurements go to the audit trail. Every adapter here pushes fresh
+device frames (OpenCV, SBI MJPEG, CameraX), so a legitimate camera has no reason to repeat one.
+
+**Limits, stated plainly.** A face-swap composited onto a *live* webcam feed and sent out at the camera's own
+frame rate keeps real sensor noise in the background and need not repeat frames. Against that, layer 1 is the
+defence: such a pipeline still needs a virtual camera, unless the attacker controls the device driver or
+uses hardware HDMI capture. The 0.92 threshold is a first estimate, chosen with margin over simulated read
+noise down to σ = 0.7 (heavy denoising). `LivenessTools interop` measures the real margin on each device
+(the "Stream integrity" section of `interop-report.md`) and must be run on every supported camera before
+release. The next step is a challenge the injector cannot predict: the screen flashes a random colour
+sequence and the reflection on the face must follow it, which a pre-rendered or remote deepfake cannot do in
+time.
 
 ### Rate limiting
 
@@ -297,6 +373,8 @@ All keys live under `mosip.registration.liveness.` and can be overridden per wor
 | `rateLimit.maxFailures` / `windowMs` / `lockoutMs` | 5 / 600000 / 900000 | Failures within the window that trigger a lockout, and its length |
 | `consent.required` | true | Person must explicitly allow camera use before the device is opened |
 | `consent.maxAgeMs` | 300000 | Oldest consent accepted at session start |
+| `injection.enabled` | true | Check every frame for injection (repeated frames, no sensor noise) |
+| `injection.virtualCameras` | BLOCK_REACHABLE | Software cameras on the station: `BLOCK_REACHABLE`, `BLOCK_INSTALLED` or `AUDIT` |
 
 Validation is strict: unknown keys (typos), out-of-range values and inconsistent combinations
 (`active.always` without `active.enabled`, `minChallenges` > pool) fail at load time with the key named.
@@ -314,6 +392,8 @@ Validation is strict: unknown keys (typos), out-of-range values and inconsistent
 | Face stayed covered and no fallback could verify or capture it | `FACE_OCCLUDED` | Yes | "Your face appears to be covered…" + remove mask / sunglasses |
 | Low passive score, active disabled; score drop during challenges | `LIVENESS_BELOW_THRESHOLD` | Yes | same |
 | Presentation attack | `PAD_ATTACK_DETECTED` | Yes | **generic** "Face verification could not be completed" (attack type only in audit) |
+| Frames injected (repeated frames, no sensor noise) | `INJECTION_DETECTED` | Yes | **generic**, + "Check that the face capture device is connected" (cues only in audit) |
+| Software camera on the station that the policy forbids | `CAMERA_NOT_TRUSTED` | terminal | "This camera cannot be used for face verification…", `BLOCK`; camera never opened |
 | Wrong action / continuity broken | `CHALLENGE_FAILED` | Yes | + "Follow the prompted action" |
 | Challenge not done in time | `CHALLENGE_TIMEOUT` | Yes | same |
 | Retry budget exhausted | `MAX_RETRIES_EXCEEDED` | n/a | Message for the configured `FailureAction` |
@@ -390,6 +470,10 @@ Faults that are not the person's doing never use up their attempts. Retry after 
     (the session simulation tests cover this today with simulated replays).
   - Track **BPCER impact on UX**: % of bona fide sessions escalated to active, retry rate, completion time
     (already emitted by `LivenessMetrics`).
+- **CEN/TS 18099 (injection attack detection)**: injection is outside 30107's scope. The camera source check and
+  stream integrity cues (§3, *Injection attack detection*) are this design's injection attack detection (IAD),
+  audited as `INJECTION_DETECTED` with the cue as the injection attack instrument evidence. They are evaluated
+  separately from PAD, so APCER figures are never mixed with injection results.
 - **ISO/IEC 19794-5**: the captured frame is chosen for frontal pose, open eyes and highest quality, in line with
   the face image format's capture requirements. ICAO-grade quality checks belong to the engine's quality score.
 

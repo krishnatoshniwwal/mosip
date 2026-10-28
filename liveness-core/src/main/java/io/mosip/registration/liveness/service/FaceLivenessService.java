@@ -7,6 +7,7 @@ import io.mosip.registration.liveness.challenge.ChallengeSelector;
 import io.mosip.registration.liveness.config.LivenessConfig;
 import io.mosip.registration.liveness.device.FaceCaptureDevice;
 import io.mosip.registration.liveness.engine.LivenessEngine;
+import io.mosip.registration.liveness.injection.CameraSourceCheck;
 import io.mosip.registration.liveness.session.AttemptRateLimiter;
 import io.mosip.registration.liveness.session.CameraConsent;
 import io.mosip.registration.liveness.session.LivenessListener;
@@ -42,6 +43,7 @@ public final class FaceLivenessService {
     private final ChallengeSelector selector;
     private final LongSupplier clock;
     private final AttemptRateLimiter rateLimiter;
+    private volatile CameraSourceCheck cameraSourceCheck = CameraSourceCheck.NONE;
 
     /** Rate-limit state is kept in memory; use the other constructor to persist it across restarts. */
     public FaceLivenessService(LivenessConfig config, LivenessEngine engine, AuditSink audit) {
@@ -115,9 +117,18 @@ public final class FaceLivenessService {
                 config.policyFor(workflow), engine.info(), selector, audit, metrics, recording,
                 rateLimiter, rateLimitKey(workflow, subjectKey));
         session.setCameraConsent(consent);
-        LivenessHandle handle = new LivenessHandle(session, device, engine, metrics, clock, recording, finished);
+        LivenessHandle handle = new LivenessHandle(session, device, engine, metrics, clock, recording, finished,
+                cameraSourceCheck);
         handle.begin();
         return handle;
+    }
+
+    /**
+     * Lists where a device's frames can come from before each session opens it, so that a station with a software
+     * camera (the usual way to inject a deepfake) can be refused. Defaults to {@link CameraSourceCheck#NONE}.
+     */
+    public void setCameraSourceCheck(CameraSourceCheck check) {
+        this.cameraSourceCheck = check == null ? CameraSourceCheck.NONE : check;
     }
 
     /** The key failed attempts are counted under in {@link #rateLimiter()}. */

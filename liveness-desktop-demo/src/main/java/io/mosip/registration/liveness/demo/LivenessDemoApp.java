@@ -9,6 +9,9 @@ import io.mosip.registration.liveness.device.DeviceLevel;
 import io.mosip.registration.liveness.device.FaceFrame;
 import io.mosip.registration.liveness.engine.FaceRegion;
 import io.mosip.registration.liveness.i18n.LivenessMessages;
+import io.mosip.registration.liveness.injection.CameraEndpoint;
+import io.mosip.registration.liveness.injection.CameraSourceCheck;
+import io.mosip.registration.liveness.injection.CameraSourceReport;
 import io.mosip.registration.liveness.mock.MockFaceDevice;
 import io.mosip.registration.liveness.mock.SimulatedLivenessEngine;
 import io.mosip.registration.liveness.mock.SimulatedSubject;
@@ -61,6 +64,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Random;
@@ -87,6 +91,7 @@ public final class LivenessDemoApp {
         PHOTO("Attack: printed photo", Presentation.PRINTED_PHOTO, 0),
         SCREEN("Attack: photo on a screen", Presentation.SCREEN_DISPLAY, 0),
         REPLAY("Attack: video replay (evades passive PAD)", Presentation.VIDEO_REPLAY, 0),
+        INJECTED("Attack: deepfake injected via virtual camera (passes PAD + challenges)", Presentation.INJECTED_STREAM, 85),
         NOBODY("Nobody in front of the camera", Presentation.NO_FACE, 0),
         TWO("Two people in view", Presentation.TWO_FACES, 85),
         OFF_CENTER("Live person, beside the oval", 0.82f, 0.48f, 1f, Collections.emptySet()),
@@ -346,7 +351,15 @@ public final class LivenessDemoApp {
         JButton corrupt = new JButton("Send corrupt frames");
         corrupt.addActionListener(e -> device.injectCorruptFrames(8));
         panel.add(corrupt);
-        panel.setPreferredSize(new Dimension(820, 110));
+        // What the station's camera listing would find; the live app lists the real cameras instead.
+        JCheckBox virtualCamera = new JCheckBox("OBS Virtual Camera installed on station");
+        virtualCamera.addActionListener(e -> service.setCameraSourceCheck(virtualCamera.isSelected()
+                ? d -> CameraSourceReport.of("simulated", Arrays.asList(
+                        new CameraEndpoint("Integrated Camera", "USB\\VID_5986&PID_2174&MI_00", true),
+                        new CameraEndpoint("OBS Virtual Camera", "SWD\\VCAMDEVAPI\\OBS", true)))
+                : CameraSourceCheck.NONE));
+        panel.add(virtualCamera);
+        panel.setPreferredSize(new Dimension(820, 140));
         return panel;
     }
 
