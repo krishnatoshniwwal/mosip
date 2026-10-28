@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -36,7 +37,8 @@ class InferenceTargetTest {
 
     @Test
     void aClearlyFasterGpuWithTheSameOutputIsChosen() {
-        InferenceTarget.Choice c = InferenceTarget.choose("m", GPUS,
+        // One GPU target only: two equally fast ones would be ordered by timing jitter.
+        InferenceTarget.Choice c = InferenceTarget.choose("m", Collections.singletonList(InferenceTarget.OPENCL),
                 t -> trial(t == InferenceTarget.CPU ? 6 : 1, 1f), 0.005);
         assertEquals(InferenceTarget.OPENCL, c.target, c.report);
         assertTrue(c.report.endsWith("-> opencl"), c.report);

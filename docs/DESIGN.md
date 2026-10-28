@@ -1,7 +1,11 @@
-# Face Liveness and PAD for the MOSIP Registration Client: Technical Design (v0.1)
+# Face Liveness and PAD for the MOSIP Registration Client: Technical Design
 
 Problem statement 04, MOSIP Decode. This document covers the architecture implemented in this repository
-and the integration plan for the Desktop and Android Registration Clients.
+and the integration plan for the Desktop and Android Registration Clients. Companion documents:
+
+- [UI_UX.md](UI_UX.md): screens, states and messages for the three workflows, desktop and Android.
+- [TECHNOLOGY_EVALUATION.md](TECHNOLOGY_EVALUATION.md): why these models and runtimes, with measurements.
+- [REGCLIENT_INTEGRATION.md](REGCLIENT_INTEGRATION.md): the controller changes in `mosip/registration-client`.
 
 ## 1. Goals
 
@@ -315,11 +319,116 @@ sequenceDiagram
     SVC->>DEV: stopStream(), close()
 ```
 
-| Workflow | Uses the result for | On final failure (`retry.exhaustedAction`, sample config) |
+| Workflow | What liveness gates | On final failure (`retry.exhaustedAction`, sample config) |
 |---|---|---|
-| Resident registration | `capturedFrame` becomes the face biometric (instead of a raw capture) | `REQUIRE_SUPERVISOR_OVERRIDE`: exception flow with supervisor review |
-| Operator authentication | Face match runs on `capturedFrame`; login only if liveness **and** match pass | `ALLOW_ALTERNATE_AUTH`: password/OTP if the client's login policy allows it |
+| Resident registration | The MDS rCapture that becomes the stored face biometric | `REQUIRE_SUPERVISOR_OVERRIDE`: the face is marked as an exception for supervisor approval |
+| Operator authentication / login | The capture-and-match against the operator's enrolled face | `ALLOW_ALTERNATE_AUTH`: password/OTP if the client's login policy allows it |
 | Supervisor authentication | As operator, with a stricter policy (`active.always`, threshold 80, 1 retry) | `BLOCK` |
+
+The client stores the MDS-signed capture, not a liveness preview frame. So the `LivenessGate` runs liveness
+first, then the screen's own capture step, and keeps watching the stream while that step runs. The verified
+person must stay in view, alone, bona fide and close to where liveness was verified (`capture.bind.*`). If they
+don't, the capture is discarded (`BINDING_BROKEN`) and a new attempt starts with liveness again.
+
+### Resident face capture
+
+```mermaid
+sequenceDiagram
+    actor O as Operator
+    actor R as Resident
+    participant BC as GenericBiometricsController
+    participant DLG as LivenessCaptureDialog
+    participant GATE as LivenessGate
+    participant SES as LivenessSession
+    participant MDS as MDS (SBI)
+    participant AUD as AuditManagerService
+
+    O->>BC: scan face modality
+    BC->>DLG: show(RESIDENT_REGISTRATION, registrationId, capture = rCapture)
+    DLG->>R: camera permission
+    R-->>DLG: Allow
+    DLG->>GATE: start(...)
+    GATE->>MDS: STREAM /stream
+    loop frames
+        MDS-->>SES: preview frame
+        SES-->>DLG: "Checking face liveness…" / challenge prompts
+    end
+    R->>MDS: follows prompts
+    SES-->>GATE: PASSED
+    GATE->>MDS: rCapture (stream stays open)
+    Note over GATE,MDS: binding: same person, alone, bona fide, in place
+    MDS-->>GATE: signed BiometricsDto
+    GATE-->>DLG: ACCEPTED
+    DLG-->>BC: capture
+    BC->>BC: handleCaptured: local de-dup, attempts, save to RegistrationDTO
+    GATE->>AUD: SESSION_STARTED … LIVENESS_PASSED (no images)
+    alt retries exhausted
+        DLG-->>BC: REQUIRE_SUPERVISOR_OVERRIDE
+        BC->>BC: mark face as exception, supervisor approves at review
+    end
+```
+
+### Operator login and operator authentication
+
+```mermaid
+sequenceDiagram
+    actor OP as Operator
+    participant LC as LoginController / AuthenticationController
+    participant DLG as LivenessCaptureDialog
+    participant GATE as LivenessGate
+    participant SES as LivenessSession
+    participant MDS as MDS (SBI)
+
+    OP->>LC: face login
+    LC->>DLG: show(OPERATOR_AUTHENTICATION, userId, capture = captureAndValidateFace)
+    DLG->>OP: camera permission
+    OP-->>DLG: Allow
+    DLG->>GATE: start(...)
+    GATE->>MDS: STREAM /stream
+    MDS-->>SES: frames
+    SES-->>DLG: prompts only if the passive check is unsure
+    SES-->>GATE: PASSED
+    GATE->>MDS: capture + match against the enrolled face (stream stays open)
+    MDS-->>GATE: match = true
+    GATE-->>LC: ACCEPTED, true
+    LC->>LC: existing success path (session, next screen)
+    alt retries exhausted
+        GATE-->>LC: ALLOW_ALTERNATE_AUTH
+        LC->>OP: password / OTP, if the auth policy allows
+    else repeated failures
+        GATE-->>LC: LOCKED_OUT for this user ID ("Locked until …")
+    end
+```
+
+### Supervisor authentication
+
+```mermaid
+sequenceDiagram
+    actor SV as Supervisor
+    participant EOD as EODAuthenticationController / reviewer auth
+    participant DLG as LivenessCaptureDialog
+    participant GATE as LivenessGate
+    participant SES as LivenessSession
+    participant MDS as MDS (SBI)
+
+    SV->>EOD: approve packets / review
+    EOD->>DLG: show(SUPERVISOR_AUTHENTICATION, userId, capture = captureAndValidateFace)
+    DLG->>SV: camera permission
+    SV-->>DLG: Allow
+    DLG->>GATE: start(...)
+    GATE->>MDS: STREAM /stream
+    MDS-->>SES: frames
+    Note over SES: active.always: 2-3 random challenges even when passive is confident; threshold 80
+    SES-->>DLG: "Please blink" … "Please look up"
+    SV->>MDS: performs the challenges
+    SES-->>GATE: PASSED
+    GATE->>MDS: capture + match (stream stays open)
+    MDS-->>GATE: match = true
+    GATE-->>EOD: ACCEPTED, true
+    alt second failure (retry.max = 1)
+        GATE-->>EOD: BLOCK ("Please contact your administrator")
+    end
+```
 
 Integration points in the Registration Client:
 
@@ -336,9 +445,15 @@ Integration points in the Registration Client:
   (`tools/gen_liveness_messages.py`) and checked for completeness by tests. Translations are
   machine-assisted drafts and need native-speaker review before deployment.
 - **Android (Flutter + Java):** `liveness-core` is plain Java 11 bytecode with no dependencies, so it runs
-  unchanged in the Android client's native layer. A `MethodChannel`/`EventChannel` exposes `start`, `retry`
-  and `cancel` and streams `LivenessUpdate` to the Flutter screen. A `CameraX`/vendor-SDK
-  `FaceCaptureDevice` delivers NV21 frames. A TFLite engine implements `LivenessEngine`.
+  unchanged in the Android client's native layer. `liveness-android` sketches the adapters: a CameraX
+  `FaceCaptureDevice` (NV21 frames), a Flutter `MethodChannel`/`EventChannel` bridge (`start`, `retry`,
+  `cancel`, update stream) and an engine wrapper. The camera adapter caps the analysis frame rate (10 fps by
+  default) by dropping frames before analysis, so every analysed frame gets its own verdict. The module is plain
+  Java: it is compiled and unit-tested in the regular build, but not packaged as an Android library yet (no
+  Gradle wrapper or settings), the bridge uses its own copies of Flutter's interfaces, and there is no Android
+  inference engine. The planned engine must turn frames upright first (the camera's rotation is only passed as
+  metadata, and front cameras commonly deliver 270°), then run the same models: the MediaPipe files natively in
+  TFLite, MiniFASNet in ONNX Runtime for Android. The screen design is in [UI_UX.md](UI_UX.md#8-android-designed-not-built).
 
 ## 5. Configuration
 
@@ -540,10 +655,23 @@ the frame; mask or sunglasses; cooperative / unresponsive / wrong action) is the
 
 ## 10. Roadmap
 
-| Version | Scope |
+**Done:**
+
+- Core orchestration: passive check, PAD, random challenges, retries and failure actions.
+- Per-workflow configuration, audit and metrics.
+- SBI discovery and stream adapter, tested against the MOSIP mock SBI.
+- Live engine with YuNet, MiniFASNet, Face Mesh and Iris: blink, smile, turn left/right, look up/down.
+- Replay, occlusion and injection cues; capture oval, consent and rate limiting.
+- Nine languages.
+- Signed model packages with online sync.
+- Desktop Registration Client module (`liveness-regclient`) with capture binding.
+- ISO/IEC 30107-3 evaluation tool, dataset recorder and device conformance suite.
+- Optional GPU acceleration.
+
+| Next | Scope |
 |---|---|
-| **v0.1 (this)** | Core orchestration, config, audit/metrics, SBI stream adapter, mock device + simulated engine, reference UI, tests |
-| v0.2 | Real on-device engine: face landmarks (eye openness, smile, pose) + passive anti-spoof CNN via ONNX Runtime (desktop) / TFLite (Android); calibration of thresholds |
-| v0.3 | ~~JavaFX integration in the Desktop client (resident capture, operator/supervisor auth)~~ (done: `liveness-regclient`, capture binding); ~~MDS device discovery~~ (done); apply the controller changes in `mosip/registration-client` |
-| v0.4 | Android adapter (CameraX/vendor SDK), Flutter UI, low-resource optimisations (frame skipping, NNAPI/GPU delegate) |
-| v0.5 | ~~Signed model packages + version management~~ (done), ~~ISO/IEC 30107-3 evaluation harness~~ (done); evaluation report on collected device data |
+| **Evaluation report** | Record bona fide and attack sessions on the target devices (`record`), run `evaluate`, and publish APCER per attack type, BPCER and the DET curve. Calibrate the passive threshold, `pad.minAttackFrames`, and the replay, occlusion, injection and pitch thresholds from it. |
+| **Android** | Android library packaging (Gradle wrapper and settings) for `liveness-android`. An Android engine (TFLite + ONNX Runtime) that rotates frames upright using the camera's `rotationDegrees`. The Flutter screen from [UI_UX.md](UI_UX.md). (Done: the module compiles and its tests run in the regular build, and throttling now drops frames before analysis instead of reusing an earlier frame's result.) |
+| **Registration Client merge** | Apply the controller changes in [REGCLIENT_INTEGRATION.md](REGCLIENT_INTEGRATION.md) to `mosip/registration-client`. |
+| **Field validation** | A passing session on real L0/L1 SBI hardware; `interop` reports per supported device; native-speaker review of the translations. |
+| **Later** | Signed liveness evidence in the registration packet; spoken prompts and accessibility profiles; age-aware policy for young children. |

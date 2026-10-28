@@ -18,6 +18,7 @@ import io.mosip.registration.liveness.session.LivenessOutcome;
 import io.mosip.registration.liveness.session.LivenessResult;
 import io.mosip.registration.liveness.session.LivenessState;
 import io.mosip.registration.liveness.session.LivenessUpdate;
+import io.mosip.registration.liveness.session.SessionTestObjects;
 import io.mosip.registration.liveness.session.UserMessage;
 import org.junit.jupiter.api.Test;
 
@@ -115,7 +116,7 @@ class FlutterLivenessBridgeTest {
 
     @Test
     void serializesUpdateAndResultMaps() {
-        LivenessUpdate update = new LivenessUpdate(
+        LivenessUpdate update = SessionTestObjects.update(
                 "s123", LivenessWorkflow.RESIDENT_REGISTRATION, LivenessState.ACTIVE_CHALLENGE,
                 UserMessage.CHECKING_LIVENESS, UserMessage.GUIDE_FACE_IN_AREA,
                 Collections.singletonList(UserMessage.GUIDE_IMPROVE_LIGHTING),
@@ -133,7 +134,7 @@ class FlutterLivenessBridgeTest {
         assertEquals(0.5, map.get("progress"));
         assertFalse((Boolean) map.get("retryAvailable"));
 
-        LivenessResult result = new LivenessResult(
+        LivenessResult result = SessionTestObjects.result(
                 "s123", LivenessWorkflow.RESIDENT_REGISTRATION, LivenessOutcome.PASSED,
                 null, null, null, null, 88.5f, true,
                 Collections.singletonList(ChallengeType.TURN_LEFT), 1, Collections.emptyList(),

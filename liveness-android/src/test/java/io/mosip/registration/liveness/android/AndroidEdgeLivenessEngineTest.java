@@ -16,46 +16,68 @@ import java.util.EnumSet;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AndroidEdgeLivenessEngineTest {
 
-    @Test
-    void edgeEngineThrottlesRapidFrames() throws Exception {
-        AtomicInteger inferenceCount = new AtomicInteger();
-        EngineInfo baseInfo = new EngineInfo("BaseModel", "1.0", "m1", EnumSet.allOf(ChallengeType.class), true);
+    private static final EngineInfo BASE = new EngineInfo("BaseModel", "1.0", "m1",
+            EnumSet.allOf(ChallengeType.class), true);
 
-        LivenessEngine baseEngine = new LivenessEngine() {
+    /**
+     * Regression: the wrapper used to return the previous frame's analysis for frames arriving within its
+     * interval, so a spoof frame right after a genuine one was never checked.
+     */
+    @Test
+    void everyFrameGetsItsOwnAnalysis() throws Exception {
+        AtomicInteger inferences = new AtomicInteger();
+        LivenessEngine base = new LivenessEngine() {
             @Override
             public EngineInfo info() {
-                return baseInfo;
+                return BASE;
             }
 
             @Override
             public FrameAnalysis analyze(FaceFrame frame) {
-                inferenceCount.incrementAndGet();
-                return new FrameAnalysis(Collections.emptyList(), 90f, PadResult.bonaFide(90f));
+                inferences.incrementAndGet();
+                // Odd frames are attacks: each verdict must belong to its own frame.
+                return new FrameAnalysis(Collections.emptyList(), 90f, frame.getSequence() % 2 == 1
+                        ? PadResult.attack(null, 10f) : PadResult.bonaFide(90f));
             }
         };
+        AndroidEdgeLivenessEngine edge = new AndroidEdgeLivenessEngine(base);
+        assertTrue(edge.info().getName().contains("Android Edge"));
+        assertTrue(edge.info().getModelVersion().endsWith("-mobile"));
 
-        // Target max 5 fps = min 200ms interval
-        AndroidEdgeLivenessEngine edgeEngine = new AndroidEdgeLivenessEngine(baseEngine, 5);
-        assertTrue(edgeEngine.info().getName().contains("Android Edge"));
-        assertTrue(edgeEngine.info().getModelVersion().contains("mobile"));
-
-        FaceFrame frame = new FaceFrame("DEV", 1, 1000L, 32, 24, PixelFormat.NV21,
-                new byte[32 * 24 * 3 / 2], Collections.emptyMap());
-
-        // Call 10 times consecutively with zero delay
         for (int i = 0; i < 10; i++) {
-            FrameAnalysis res = edgeEngine.analyze(frame);
-            assertNotNull(res);
+            FrameAnalysis result = edge.analyze(frame(i, 1000L));
+            assertEquals(i % 2 == 1, result.getPad().isAttackDetected(), "frame " + i + " got another frame's verdict");
         }
+        assertEquals(10, inferences.get(), "no frame may be answered from a cache");
+        edge.close();
+    }
 
-        // Only 1 actual inference should have been performed; subsequent 9 were returned from cache
-        assertEquals(1, inferenceCount.get(), "Subsequent rapid frames must be throttled to preserve mobile resources");
+    @Test
+    void outOfMemoryBecomesAnEngineError() {
+        LivenessEngine base = new LivenessEngine() {
+            @Override
+            public EngineInfo info() {
+                return BASE;
+            }
 
-        edgeEngine.close();
+            @Override
+            public FrameAnalysis analyze(FaceFrame frame) {
+                throw new OutOfMemoryError("simulated");
+            }
+        };
+        LivenessEngineException e = assertThrows(LivenessEngineException.class,
+                () -> new AndroidEdgeLivenessEngine(base).analyze(frame(0, 0L)));
+        assertFalse(e.getMessage().isEmpty());
+    }
+
+    private static FaceFrame frame(long sequence, long timestampMs) {
+        return new FaceFrame("DEV", sequence, timestampMs, 32, 24, PixelFormat.NV21,
+                new byte[32 * 24 * 3 / 2], Collections.emptyMap());
     }
 }

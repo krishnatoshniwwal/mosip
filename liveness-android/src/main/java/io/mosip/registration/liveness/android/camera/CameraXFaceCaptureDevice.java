@@ -24,7 +24,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * in {@link PixelFormat#NV21} format, and forwards them to the active {@link FrameListener}.
  *
  * <p>Supports configuration of lens facing (front-facing camera for resident capture / operator login),
- * target resolution (e.g. 640x480), and device status reporting.
+ * target resolution (e.g. 640x480), the analysis frame rate, and device status reporting.
+ *
+ * <p>The sensor rotation is passed on as {@code rotationDegrees} metadata only; the frame itself is not rotated.
+ * An Android engine must turn the frame upright before face detection (front cameras commonly deliver 270°).
  */
 public class CameraXFaceCaptureDevice implements FaceCaptureDevice {
 
@@ -34,23 +37,43 @@ public class CameraXFaceCaptureDevice implements FaceCaptureDevice {
         EXTERNAL
     }
 
+    /** Default cap on frames handed to liveness analysis, to save battery and avoid thermal throttling. */
+    public static final int DEFAULT_MAX_ANALYSIS_FPS = 10;
+
     private final String deviceId;
     private final LensFacing lensFacing;
     private final DeviceInfo info;
+    private final long minFrameIntervalMs;
     private final AtomicLong sequence = new AtomicLong();
+    private final AtomicLong droppedFrames = new AtomicLong();
     private final AtomicInteger corruptFrames = new AtomicInteger();
     private final AtomicBoolean cameraPermissionGranted = new AtomicBoolean(true);
 
     private volatile DeviceStatus status = DeviceStatus.DISCONNECTED;
     private FrameListener activeListener;
+    /** Capture timestamp of the last frame delivered in this stream. */
+    private long lastDeliveredMs = Long.MIN_VALUE;
 
     public CameraXFaceCaptureDevice() {
         this("ANDROID-CAM-FRONT", LensFacing.FRONT);
     }
 
     public CameraXFaceCaptureDevice(String deviceId, LensFacing lensFacing) {
+        this(deviceId, lensFacing, DEFAULT_MAX_ANALYSIS_FPS);
+    }
+
+    /**
+     * @param maxAnalysisFps most frames per second passed on for analysis; 0 or less passes every frame. Frames
+     *                       above the rate are dropped here, before analysis, so every frame that reaches the
+     *                       liveness engine is analysed itself. The on-screen preview is CameraX's own
+     *                       {@code Preview} use case and is not affected.
+     */
+    public CameraXFaceCaptureDevice(String deviceId, LensFacing lensFacing, int maxAnalysisFps) {
         this.deviceId = deviceId;
         this.lensFacing = lensFacing;
+        // 10% below the nominal interval absorbs camera timestamp jitter: a 30 fps camera at a 10 fps cap then
+        // passes every third frame instead of every fourth.
+        this.minFrameIntervalMs = maxAnalysisFps > 0 ? 900L / maxAnalysisFps : 0;
         this.info = new DeviceInfo(
                 deviceId,
                 "Android",
@@ -109,6 +132,12 @@ public class CameraXFaceCaptureDevice implements FaceCaptureDevice {
         }
         this.activeListener = listener;
         this.status = DeviceStatus.STREAMING;
+        this.lastDeliveredMs = Long.MIN_VALUE;
+    }
+
+    /** Frames dropped by the analysis rate limit since this device was created. */
+    public long droppedFrames() {
+        return droppedFrames.get();
     }
 
     /**
@@ -127,6 +156,16 @@ public class CameraXFaceCaptureDevice implements FaceCaptureDevice {
                 return;
             }
             listener = activeListener;
+            // A timestamp going backwards means the camera restarted: deliver, and measure from here.
+            boolean tooSoon = minFrameIntervalMs > 0 && lastDeliveredMs != Long.MIN_VALUE
+                    && timestampMs >= lastDeliveredMs && timestampMs - lastDeliveredMs < minFrameIntervalMs;
+            if (listener != null && tooSoon) {
+                droppedFrames.incrementAndGet();
+                return;
+            }
+            if (listener != null) {
+                lastDeliveredMs = timestampMs;
+            }
         }
         if (listener == null) {
             return;

@@ -41,7 +41,7 @@ in behind interfaces, so no vendor is hard-wired.
 | Liveness state machine: passive, PAD, random challenges, retries, failure actions | Applying the controller changes in `mosip/registration-client` ([guide](docs/REGCLIENT_INTEGRATION.md)) |
 | Desktop Registration Client integration (`liveness-regclient`): JavaFX capture dialog for resident capture, operator login and supervisor auth; MDS stream adapter; config from synced global params; audit into `AuditManagerService` | |
 | Capture binding: liveness gates the MDS rCapture / face match and watches the stream until it returns | |
-| Per-workflow configuration with strict validation | Android adapter + Flutter screen |
+| Per-workflow configuration with strict validation | Android engine (TFLite/ONNX Runtime) + Flutter screen; the CameraX adapter and Flutter bridge are built and unit-tested |
 | SBI device discovery + `STREAM /stream` adapter, tested against the MOSIP mock SBI | A passing session on real L0/L1 hardware |
 | Mock L0/L1 device + simulated subject and engine (live, photo, screen, replay, …) | |
 | Audit events (no biometric data) and anonymous metrics | |
@@ -163,6 +163,9 @@ liveness-regclient/                  Desktop Registration Client integration: Ja
 config/liveness.properties           sample per-workflow policy
 docs/DESIGN.md                       technical design: architecture, flows, config, errors, security, ISO 30107
 docs/REGCLIENT_INTEGRATION.md        controller-by-controller changes for mosip/registration-client
+docs/UI_UX.md                        screens, states and messages per workflow, desktop and Android
+docs/TECHNOLOGY_EVALUATION.md        why these models and runtimes, with measurements
+docs/SUBMISSION.md                   the 1-2 page submission document (evaluation results still to fill in)
 ```
 
 ## Using it from a workflow
@@ -189,4 +192,5 @@ LivenessHandle h = service.start(LivenessWorkflow.OPERATOR_AUTHENTICATION, opera
 // h.retry() when the user presses Retry; h.cancel() to abort
 ```
 
-See [docs/DESIGN.md](docs/DESIGN.md) for the full design.
+See [docs/DESIGN.md](docs/DESIGN.md) for the full design, [docs/UI_UX.md](docs/UI_UX.md) for the screens and
+[docs/TECHNOLOGY_EVALUATION.md](docs/TECHNOLOGY_EVALUATION.md) for the technology choices.

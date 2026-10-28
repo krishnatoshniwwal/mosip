@@ -48,6 +48,7 @@ public final class MockFaceDevice implements FaceCaptureDevice {
     private volatile DeviceStatus status = DeviceStatus.DISCONNECTED;
     private volatile boolean available = true;
     private ScheduledExecutorService streamer;
+    private volatile Thread streamThread;
     private FrameListener listener;
 
     public MockFaceDevice(SimulatedSubject subject, int fps, DeviceLevel level) {
@@ -106,6 +107,7 @@ public final class MockFaceDevice implements FaceCaptureDevice {
         streamer = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "mock-face-device");
             t.setDaemon(true);
+            streamThread = t;
             return t;
         });
         streamer.scheduleAtFixedRate(() -> frameListener.onFrame(captureFrame()), 0, 1000L / fps, TimeUnit.MILLISECONDS);
@@ -186,10 +188,24 @@ public final class MockFaceDevice implements FaceCaptureDevice {
         status = DeviceStatus.DISCONNECTED;
     }
 
+    /**
+     * Stops the frame timer and waits for a frame already being delivered, so that, like a real device, nothing
+     * reaches the listener after {@link #stopStream()} returns. A listener that stops the stream from the frame
+     * thread itself is not waited for.
+     */
     private void shutdownStreamer() {
-        if (streamer != null) {
-            streamer.shutdownNow();
-            streamer = null;
+        if (streamer == null) {
+            return;
+        }
+        ScheduledExecutorService stopping = streamer;
+        streamer = null;
+        stopping.shutdownNow();
+        if (Thread.currentThread() != streamThread) {
+            try {
+                stopping.awaitTermination(1, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 }

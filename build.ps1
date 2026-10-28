@@ -112,14 +112,18 @@ Compile "$root/liveness-tools/src/main/java" "$out/tools" "$out/core;$out/camera
 Write-Host '== Compiling liveness-regclient (Registration Client integration, JavaFX)'
 Compile "$root/liveness-regclient/src/main/java" "$out/regclient" "$out/core;$out/camera;$out/onnx;$opencvJar;$onnxJar;$javafxCp"
 
+Write-Host '== Compiling liveness-android (Android adapters: CameraX device, Flutter bridge; plain Java)'
+Compile "$root/liveness-android/src/main/java" "$out/android" "$out/core"
+
 if (-not $SkipTests) {
     Write-Host '== Compiling tests'
     Compile "$root/liveness-core/src/test/java" "$out/test" "$out/core;$junitJar"
     Compile "$root/liveness-onnx-engine/src/test/java" "$out/onnx-test" "$out/core;$out/onnx;$opencvJar;$onnxJar;$junitJar"
     Compile "$root/liveness-tools/src/test/java" "$out/tools-test" "$out/core;$out/camera;$out/tools;$opencvJar;$junitJar"
     Compile "$root/liveness-regclient/src/test/java" "$out/regclient-test" "$out/core;$out/regclient;$junitJar"
+    Compile "$root/liveness-android/src/test/java" "$out/android-test" "$out/core;$out/android;$junitJar"
     Write-Host '== Running tests'
-    & java -jar $junitJar execute --class-path "$out/core;$out/test;$out/onnx;$out/onnx-test;$out/camera;$out/tools;$out/tools-test;$out/regclient;$out/regclient-test;$opencvJar;$onnxJar" --scan-class-path --disable-banner --details=tree
+    & java -jar $junitJar execute --class-path "$out/core;$out/test;$out/onnx;$out/onnx-test;$out/camera;$out/tools;$out/tools-test;$out/regclient;$out/regclient-test;$out/android;$out/android-test;$opencvJar;$onnxJar" --scan-class-path --disable-banner --details=tree
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
 }
 

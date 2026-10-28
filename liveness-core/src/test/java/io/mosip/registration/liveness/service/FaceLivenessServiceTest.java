@@ -64,15 +64,20 @@ class FaceLivenessServiceTest {
 
     @Test
     void disconnectMidSessionCanBeRetriedWithoutUsingAnAttempt() throws Exception {
+        // Unplug only once frames flow (the first update is sent before the stream starts), and with nobody in view,
+        // so the session is still running: a busy machine could otherwise let it pass before the unplug.
+        subject.setPresentation(SimulatedSubject.Presentation.NO_FACE);
         Recorder ui = new Recorder();
         LivenessHandle handle = service.start(LivenessWorkflow.RESIDENT_REGISTRATION, granted(), device, subject.respondingTo(ui));
         assertTrue(ui.checking.await(5, TimeUnit.SECONDS));
+        assertTrue(ui.firstFrame.await(5, TimeUnit.SECONDS));
 
         device.simulateDisconnect();
         assertTrue(ui.failed.await(5, TimeUnit.SECONDS));
         assertEquals(UserMessage.FAIL_DEVICE, ui.lastFailure.getMessage());
         assertEquals(1, ui.lastFailure.getAttempt(), "device faults do not count as attempts");
 
+        subject.setPresentation(SimulatedSubject.Presentation.LIVE);
         handle.retry();
         LivenessResult result = handle.result().get(20, TimeUnit.SECONDS);
         assertEquals(LivenessOutcome.PASSED, result.getOutcome());
@@ -132,6 +137,7 @@ class FaceLivenessServiceTest {
     private static final class Recorder implements LivenessListener {
         final CountDownLatch checking = new CountDownLatch(1);
         final CountDownLatch failed = new CountDownLatch(1);
+        final CountDownLatch firstFrame = new CountDownLatch(1);
         volatile LivenessUpdate lastFailure;
         volatile int previewFrames;
 
@@ -153,6 +159,7 @@ class FaceLivenessServiceTest {
         @Override
         public void onPreviewFrame(io.mosip.registration.liveness.device.FaceFrame frame) {
             previewFrames++;
+            firstFrame.countDown();
         }
     }
 
