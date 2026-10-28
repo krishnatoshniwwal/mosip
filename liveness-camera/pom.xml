@@ -25,5 +25,12 @@
             <artifactId>opencv</artifactId>
             <version>4.9.0-0</version>
         </dependency>
+
+        <!-- test -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>

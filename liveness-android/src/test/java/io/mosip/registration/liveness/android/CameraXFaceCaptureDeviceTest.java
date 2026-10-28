@@ -58,15 +58,18 @@ class CameraXFaceCaptureDeviceTest {
         int w = 640;
         int h = 480;
         byte[] nv21 = new byte[w * h * 3 / 2];
+        nv21[0] = 99; // top-left of the sideways sensor image
         device.onFrameAvailable(nv21, w, h, 270, 1000L);
 
         FaceFrame frame = delivered.get();
         assertNotNull(frame);
         assertEquals(PixelFormat.NV21, frame.getFormat());
-        assertEquals(w, frame.getWidth());
-        assertEquals(h, frame.getHeight());
+        assertEquals(h, frame.getWidth(), "turned upright: portrait");
+        assertEquals(w, frame.getHeight());
         assertTrue(frame.isWellFormed());
-        assertEquals(270, frame.getMetadata().get("rotationDegrees"));
+        assertEquals(99, frame.getData()[(w - 1) * h], "270° clockwise puts the top-left at the bottom-left");
+        assertEquals(0, frame.getMetadata().get("rotationDegrees"));
+        assertEquals(270, frame.getMetadata().get("sensorRotationDegrees"));
         assertEquals("FRONT", frame.getMetadata().get("lensFacing"));
 
         device.simulateDisconnect();
@@ -158,11 +161,12 @@ class CameraXFaceCaptureDeviceTest {
 
         device.injectCorruptFrames(1);
         byte[] valid = new byte[32 * 24 * 3 / 2];
-        device.onFrameAvailable(valid, 32, 24, 0, 500L);
+        device.onFrameAvailable(valid, 32, 24, 90, 500L);
 
         FaceFrame frame = delivered.get();
         assertNotNull(frame);
         assertFalse(frame.isWellFormed(), "Injected frame must be malformed");
+        assertEquals(90, frame.getMetadata().get("rotationDegrees"), "a malformed frame is passed on unrotated");
 
         device.close();
     }

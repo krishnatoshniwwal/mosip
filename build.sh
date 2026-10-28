@@ -132,11 +132,12 @@ if [ "$SKIP_TESTS" -eq 0 ]; then
   echo "== Compiling tests"
   compile "$ROOT/liveness-core/src/test/java" "$OUT/test" "$OUT/core$SEP$JUNIT_JAR"
   compile "$ROOT/liveness-onnx-engine/src/test/java" "$OUT/onnx-test" "$OUT/core$SEP$OUT/onnx$SEP$OPENCV_JAR$SEP$ONNX_JAR$SEP$JUNIT_JAR"
+  compile "$ROOT/liveness-camera/src/test/java" "$OUT/camera-test" "$OUT/core$SEP$OUT/camera$SEP$OPENCV_JAR$SEP$JUNIT_JAR"
   compile "$ROOT/liveness-tools/src/test/java" "$OUT/tools-test" "$OUT/core$SEP$OUT/camera$SEP$OUT/tools$SEP$OPENCV_JAR$SEP$JUNIT_JAR"
   compile "$ROOT/liveness-regclient/src/test/java" "$OUT/regclient-test" "$OUT/core$SEP$OUT/regclient$SEP$JUNIT_JAR"
   compile "$ROOT/liveness-android/src/test/java" "$OUT/android-test" "$OUT/core$SEP$OUT/android$SEP$JUNIT_JAR"
   echo "== Running tests"
-  java -jar "$JUNIT_JAR" execute --class-path "$OUT/core$SEP$OUT/test$SEP$OUT/onnx$SEP$OUT/onnx-test$SEP$OUT/camera$SEP$OUT/tools$SEP$OUT/tools-test$SEP$OUT/regclient$SEP$OUT/regclient-test$SEP$OUT/android$SEP$OUT/android-test$SEP$OPENCV_JAR$SEP$ONNX_JAR" --scan-class-path --disable-banner --details=tree
+  java -jar "$JUNIT_JAR" execute --class-path "$OUT/core$SEP$OUT/test$SEP$OUT/onnx$SEP$OUT/onnx-test$SEP$OUT/camera$SEP$OUT/camera-test$SEP$OUT/tools$SEP$OUT/tools-test$SEP$OUT/regclient$SEP$OUT/regclient-test$SEP$OUT/android$SEP$OUT/android-test$SEP$OPENCV_JAR$SEP$ONNX_JAR" --scan-class-path --disable-banner --details=tree
 fi
 
 if [ "$RUN" -eq 1 ]; then

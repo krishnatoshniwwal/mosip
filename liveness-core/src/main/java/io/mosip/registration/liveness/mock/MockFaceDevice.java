@@ -47,7 +47,7 @@ public final class MockFaceDevice implements FaceCaptureDevice {
 
     private volatile DeviceStatus status = DeviceStatus.DISCONNECTED;
     private volatile boolean available = true;
-    private ScheduledExecutorService streamer;
+    private volatile ScheduledExecutorService streamer;
     private volatile Thread streamThread;
     private FrameListener listener;
 
@@ -104,13 +104,19 @@ public final class MockFaceDevice implements FaceCaptureDevice {
             throw new DeviceException(Kind.UNAVAILABLE, "Mock face device is " + status, null);
         }
         listener = frameListener;
-        streamer = Executors.newSingleThreadScheduledExecutor(r -> {
+        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "mock-face-device");
             t.setDaemon(true);
             streamThread = t;
             return t;
         });
-        streamer.scheduleAtFixedRate(() -> frameListener.onFrame(captureFrame()), 0, 1000L / fps, TimeUnit.MILLISECONDS);
+        streamer = executor;
+        executor.scheduleAtFixedRate(() -> {
+            FaceFrame frame = captureFrame();
+            if (streamer == executor) {
+                frameListener.onFrame(frame);
+            }
+        }, 0, 1000L / fps, TimeUnit.MILLISECONDS);
         status = DeviceStatus.STREAMING;
     }
 
@@ -161,44 +167,52 @@ public final class MockFaceDevice implements FaceCaptureDevice {
     /** Drops the stream as if the cable were pulled. */
     public void simulateDisconnect() {
         FrameListener l;
+        ScheduledExecutorService stopping;
         synchronized (this) {
             if (status != DeviceStatus.STREAMING) {
                 return;
             }
-            shutdownStreamer();
+            stopping = streamer;
+            streamer = null;
             status = DeviceStatus.DISCONNECTED;
             l = listener;
             listener = null;
         }
+        awaitStopped(stopping);
         l.onStreamEnded();
     }
 
     @Override
-    public synchronized void stopStream() {
-        shutdownStreamer();
-        listener = null;
-        if (status == DeviceStatus.STREAMING) {
-            status = DeviceStatus.READY;
+    public void stopStream() {
+        ScheduledExecutorService stopping;
+        synchronized (this) {
+            stopping = streamer;
+            streamer = null;
+            listener = null;
+            if (status == DeviceStatus.STREAMING) {
+                status = DeviceStatus.READY;
+            }
         }
+        awaitStopped(stopping);
     }
 
     @Override
-    public synchronized void close() {
+    public void close() {
         stopStream();
-        status = DeviceStatus.DISCONNECTED;
+        synchronized (this) {
+            status = DeviceStatus.DISCONNECTED;
+        }
     }
 
     /**
      * Stops the frame timer and waits for a frame already being delivered, so that, like a real device, nothing
-     * reaches the listener after {@link #stopStream()} returns. A listener that stops the stream from the frame
-     * thread itself is not waited for.
+     * reaches the listener after {@link #stopStream()} returns. Called without the lock, which the frame thread
+     * needs to finish its frame. A listener that stops the stream from the frame thread itself is not waited for.
      */
-    private void shutdownStreamer() {
-        if (streamer == null) {
+    private void awaitStopped(ScheduledExecutorService stopping) {
+        if (stopping == null) {
             return;
         }
-        ScheduledExecutorService stopping = streamer;
-        streamer = null;
         stopping.shutdownNow();
         if (Thread.currentThread() != streamThread) {
             try {

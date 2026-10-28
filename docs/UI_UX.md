@@ -245,6 +245,8 @@ The result map also carries `passiveScore` for the caller's records. **The scree
   where the station has one, as on desktop.
 - Large touch targets (at least 48 dp) for Retry and Cancel; the instruction at least 20 sp.
 - Keep the screen awake during a session, and lock it to portrait.
+- Mirror the preview only. The camera adapter hands analysis upright, unmirrored frames, so "turn left" is
+  judged the same way on Android as on desktop.
 - On a slow phone, frames are skipped rather than results reused: the camera adapter passes at most 10 frames
   a second to analysis, and the session always takes the newest one, so the prompts never lag behind the
   person's movement.

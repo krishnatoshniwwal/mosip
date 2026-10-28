@@ -16,6 +16,7 @@ import org.opencv.videoio.Videoio;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Locale;
+import java.util.function.IntFunction;
 
 /**
  * {@link FaceCaptureDevice} implementation backed by OpenCV's {@link VideoCapture}.
@@ -24,7 +25,7 @@ import java.util.Locale;
  * them to the registered {@link FrameListener} at the configured frame rate.
  *
  * <p>This class is thread-safe. All state transitions are guarded by {@code synchronized}
- * blocks on the instance.
+ * blocks on the instance; {@link #stopStream()} waits for the capture thread outside them.
  */
 public class OpenCvCameraDevice implements FaceCaptureDevice {
 
@@ -38,9 +39,20 @@ public class OpenCvCameraDevice implements FaceCaptureDevice {
     private final String deviceId;
     private final DeviceInfo deviceInfo;
 
-    private VideoCapture capture;
+    private final IntFunction<FrameSource> opener;
+    private FrameSource capture;
     private volatile DeviceStatus status = DeviceStatus.DISCONNECTED;
-    private Thread captureThread;
+    /** The thread that owns the current stream; a capture loop that is no longer this thread must stop. */
+    private volatile Thread captureThread;
+
+    /** What the capture loop reads from: a {@link VideoCapture} in production. */
+    interface FrameSource {
+        boolean isOpened();
+
+        boolean read(Mat into);
+
+        void release();
+    }
 
     /**
      * Creates a camera device with default camera index 0 and 15 fps.
@@ -56,8 +68,14 @@ public class OpenCvCameraDevice implements FaceCaptureDevice {
      * @param fps         target frames per second for the capture loop
      */
     public OpenCvCameraDevice(int cameraIndex, int fps) {
+        this(cameraIndex, fps, OpenCvCameraDevice::openVideoCapture);
+    }
+
+    /** @param opener opens the camera at an index, returning null when it cannot be opened */
+    OpenCvCameraDevice(int cameraIndex, int fps, IntFunction<FrameSource> opener) {
         this.cameraIndex = cameraIndex;
         this.fps = fps;
+        this.opener = opener;
         this.deviceId = DEVICE_ID_PREFIX + cameraIndex;
         this.deviceInfo = new DeviceInfo(
                 deviceId,
@@ -93,8 +111,11 @@ public class OpenCvCameraDevice implements FaceCaptureDevice {
             return; // already open
         }
 
-        capture = new VideoCapture();
-        if (!capture.open(cameraIndex, backend())) {
+        if (capture != null) {
+            capture.release();
+        }
+        capture = opener.apply(cameraIndex);
+        if (capture == null) {
             status = DeviceStatus.ERROR;
             throw new DeviceException(
                     DeviceException.Kind.CAMERA_UNAVAILABLE,
@@ -103,10 +124,33 @@ public class OpenCvCameraDevice implements FaceCaptureDevice {
             );
         }
 
-        capture.set(Videoio.CAP_PROP_FRAME_WIDTH, DEFAULT_WIDTH);
-        capture.set(Videoio.CAP_PROP_FRAME_HEIGHT, DEFAULT_HEIGHT);
-
         status = DeviceStatus.READY;
+    }
+
+    private static FrameSource openVideoCapture(int cameraIndex) {
+        VideoCapture vc = new VideoCapture();
+        if (!vc.open(cameraIndex, backend())) {
+            vc.release();
+            return null;
+        }
+        vc.set(Videoio.CAP_PROP_FRAME_WIDTH, DEFAULT_WIDTH);
+        vc.set(Videoio.CAP_PROP_FRAME_HEIGHT, DEFAULT_HEIGHT);
+        return new FrameSource() {
+            @Override
+            public boolean isOpened() {
+                return vc.isOpened();
+            }
+
+            @Override
+            public boolean read(Mat into) {
+                return vc.read(into);
+            }
+
+            @Override
+            public void release() {
+                vc.release();
+            }
+        };
     }
 
     /**
@@ -143,21 +187,27 @@ public class OpenCvCameraDevice implements FaceCaptureDevice {
     }
 
     /**
-     * Stops the capture thread. Safe to call even when not streaming.
+     * Stops the capture thread and waits for it to finish its current frame. Safe to call even when not streaming,
+     * and from the listener itself. The listener is not told about a stop it asked for.
      */
     @Override
-    public synchronized void stopStream() {
-        if (captureThread != null) {
-            captureThread.interrupt();
+    public void stopStream() {
+        Thread t;
+        synchronized (this) {
+            t = captureThread;
+            captureThread = null;
+            if (status == DeviceStatus.STREAMING) {
+                status = DeviceStatus.READY;
+            }
+        }
+        // Waited for outside the lock: the capture loop takes it for every read.
+        if (t != null && t != Thread.currentThread()) {
+            t.interrupt();
             try {
-                captureThread.join(2000);
+                t.join(2000);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-            captureThread = null;
-        }
-        if (status == DeviceStatus.STREAMING) {
-            status = DeviceStatus.READY;
         }
     }
 
@@ -165,13 +215,15 @@ public class OpenCvCameraDevice implements FaceCaptureDevice {
      * Releases the underlying {@link VideoCapture} and resets the device to disconnected.
      */
     @Override
-    public synchronized void close() {
+    public void close() {
         stopStream();
-        if (capture != null) {
-            capture.release();
-            capture = null;
+        synchronized (this) {
+            if (capture != null) {
+                capture.release();
+                capture = null;
+            }
+            status = DeviceStatus.DISCONNECTED;
         }
-        status = DeviceStatus.DISCONNECTED;
     }
 
     // ---- internal capture loop ----
@@ -180,20 +232,29 @@ public class OpenCvCameraDevice implements FaceCaptureDevice {
         long sequence = 0;
         long frameDurationMs = 1000L / fps;
         Mat mat = new Mat();
+        Thread self = Thread.currentThread();
+        boolean errorReported = false;
 
         try {
-            while (!Thread.currentThread().isInterrupted()) {
+            while (captureThread == self && !self.isInterrupted()) {
                 long start = System.currentTimeMillis();
 
                 boolean grabbed;
                 synchronized (this) {
+                    if (captureThread != self) {
+                        break;
+                    }
                     if (capture == null || !capture.isOpened()) {
                         break;
                     }
                     grabbed = capture.read(mat);
                 }
+                if (captureThread != self) {
+                    break;
+                }
 
                 if (!grabbed || mat.empty()) {
+                    errorReported = true;
                     listener.onStreamError(new DeviceException(
                             DeviceException.Kind.STREAM_ERROR,
                             "Failed to grab frame from camera " + cameraIndex,
@@ -231,12 +292,19 @@ public class OpenCvCameraDevice implements FaceCaptureDevice {
             Thread.currentThread().interrupt();
         } finally {
             mat.release();
+            boolean stopRequested;
             synchronized (this) {
-                if (status == DeviceStatus.STREAMING) {
-                    status = DeviceStatus.READY;
+                stopRequested = captureThread != self;
+                if (!stopRequested) {
+                    captureThread = null;
+                    if (status == DeviceStatus.STREAMING) {
+                        status = DeviceStatus.READY;
+                    }
                 }
             }
-            listener.onStreamEnded();
+            if (!stopRequested && !errorReported) {
+                listener.onStreamEnded();
+            }
         }
     }
 }

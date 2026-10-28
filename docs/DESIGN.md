@@ -451,9 +451,11 @@ Integration points in the Registration Client:
   default) by dropping frames before analysis, so every analysed frame gets its own verdict. The module is plain
   Java: it is compiled and unit-tested in the regular build, but not packaged as an Android library yet (no
   Gradle wrapper or settings), the bridge uses its own copies of Flutter's interfaces, and there is no Android
-  inference engine. The planned engine must turn frames upright first (the camera's rotation is only passed as
-  metadata, and front cameras commonly deliver 270°), then run the same models: the MediaPipe files natively in
-  TFLite, MiniFASNet in ONNX Runtime for Android. The screen design is in [UI_UX.md](UI_UX.md#8-android-designed-not-built).
+  inference engine. Frames reach the engine upright already: the camera adapter applies CameraX's
+  `rotationDegrees` (front cameras commonly report 270°) with `Nv21Rotator`, swapping width and height for a
+  quarter turn. It does not mirror them, so the engine sees the face as a desktop webcam would and "turn left"
+  means the same on both; only the preview is mirrored. The planned engine then runs the same models: the
+  MediaPipe files natively in TFLite, MiniFASNet in ONNX Runtime for Android. The screen design is in [UI_UX.md](UI_UX.md#8-android-designed-not-built).
 
 ## 5. Configuration
 
@@ -671,7 +673,7 @@ the frame; mask or sunglasses; cooperative / unresponsive / wrong action) is the
 | Next | Scope |
 |---|---|
 | **Evaluation report** | Record bona fide and attack sessions on the target devices (`record`), run `evaluate`, and publish APCER per attack type, BPCER and the DET curve. Calibrate the passive threshold, `pad.minAttackFrames`, and the replay, occlusion, injection and pitch thresholds from it. |
-| **Android** | Android library packaging (Gradle wrapper and settings) for `liveness-android`. An Android engine (TFLite + ONNX Runtime) that rotates frames upright using the camera's `rotationDegrees`. The Flutter screen from [UI_UX.md](UI_UX.md). (Done: the module compiles and its tests run in the regular build, and throttling now drops frames before analysis instead of reusing an earlier frame's result.) |
+| **Android** | Android library packaging (Gradle wrapper and settings) for `liveness-android`. An Android engine (TFLite + ONNX Runtime). The Flutter screen from [UI_UX.md](UI_UX.md). (Done: the module compiles and its tests run in the regular build, throttling drops frames before analysis instead of reusing an earlier frame's result, and the camera adapter turns frames upright.) |
 | **Registration Client merge** | Apply the controller changes in [REGCLIENT_INTEGRATION.md](REGCLIENT_INTEGRATION.md) to `mosip/registration-client`. |
 | **Field validation** | A passing session on real L0/L1 SBI hardware; `interop` reports per supported device; native-speaker review of the translations. |
 | **Later** | Signed liveness evidence in the registration packet; spoken prompts and accessibility profiles; age-aware policy for young children. |

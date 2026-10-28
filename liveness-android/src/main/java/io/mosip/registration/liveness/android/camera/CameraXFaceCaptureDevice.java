@@ -26,8 +26,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>Supports configuration of lens facing (front-facing camera for resident capture / operator login),
  * target resolution (e.g. 640x480), the analysis frame rate, and device status reporting.
  *
- * <p>The sensor rotation is passed on as {@code rotationDegrees} metadata only; the frame itself is not rotated.
- * An Android engine must turn the frame upright before face detection (front cameras commonly deliver 270°).
+ * <p>Frames are delivered upright: the camera's {@code rotationDegrees} (front cameras commonly report 270°) is
+ * applied with {@link Nv21Rotator}, swapping width and height for 90° and 270°. They are not mirrored, so the
+ * engine sees the face as the camera does, the same as from a desktop webcam; only the on-screen preview is
+ * mirrored. The camera's own value is kept as {@code sensorRotationDegrees} metadata, and {@code rotationDegrees}
+ * is the rotation still to apply (0, unless the frame was malformed and passed on as it came).
  */
 public class CameraXFaceCaptureDevice implements FaceCaptureDevice {
 
@@ -146,7 +149,7 @@ public class CameraXFaceCaptureDevice implements FaceCaptureDevice {
      * @param nv21Data        raw NV21 byte buffer
      * @param width           image width
      * @param height          image height
-     * @param rotationDegrees sensor rotation (0, 90, 180, 270)
+     * @param rotationDegrees clockwise rotation that turns the frame upright, from {@code ImageInfo} (0, 90, 180, 270)
      * @param timestampMs     capture timestamp
      */
     public void onFrameAvailable(byte[] nv21Data, int width, int height, int rotationDegrees, long timestampMs) {
@@ -176,22 +179,40 @@ public class CameraXFaceCaptureDevice implements FaceCaptureDevice {
             payload = new byte[Math.max(0, nv21Data.length / 2)];
         }
 
+        int outWidth = width;
+        int outHeight = height;
+        int rotationLeft = rotationDegrees;
+        if (canRotate(payload, width, height, rotationDegrees)) {
+            payload = Nv21Rotator.rotate(payload, width, height, rotationDegrees, false);
+            outWidth = Nv21Rotator.rotatedWidth(width, height, rotationDegrees);
+            outHeight = Nv21Rotator.rotatedHeight(width, height, rotationDegrees);
+            rotationLeft = 0;
+        }
+
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("rotationDegrees", rotationDegrees);
+        metadata.put("rotationDegrees", rotationLeft);
+        metadata.put("sensorRotationDegrees", rotationDegrees);
         metadata.put("lensFacing", lensFacing.name());
 
         FaceFrame frame = new FaceFrame(
                 deviceId,
                 sequence.incrementAndGet(),
                 timestampMs,
-                width,
-                height,
+                outWidth,
+                outHeight,
                 PixelFormat.NV21,
                 payload,
                 metadata
         );
 
         listener.onFrame(frame);
+    }
+
+    /** A malformed frame is passed on unrotated, so the engine rejects it as malformed rather than this failing. */
+    private static boolean canRotate(byte[] nv21, int width, int height, int rotationDegrees) {
+        return rotationDegrees % 360 != 0 && rotationDegrees % 90 == 0
+                && width > 0 && height > 0 && width % 2 == 0 && height % 2 == 0
+                && nv21 != null && nv21.length >= width * height * 3 / 2;
     }
 
     /**

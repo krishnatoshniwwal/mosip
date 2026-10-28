@@ -119,11 +119,12 @@ if (-not $SkipTests) {
     Write-Host '== Compiling tests'
     Compile "$root/liveness-core/src/test/java" "$out/test" "$out/core;$junitJar"
     Compile "$root/liveness-onnx-engine/src/test/java" "$out/onnx-test" "$out/core;$out/onnx;$opencvJar;$onnxJar;$junitJar"
+    Compile "$root/liveness-camera/src/test/java" "$out/camera-test" "$out/core;$out/camera;$opencvJar;$junitJar"
     Compile "$root/liveness-tools/src/test/java" "$out/tools-test" "$out/core;$out/camera;$out/tools;$opencvJar;$junitJar"
     Compile "$root/liveness-regclient/src/test/java" "$out/regclient-test" "$out/core;$out/regclient;$junitJar"
     Compile "$root/liveness-android/src/test/java" "$out/android-test" "$out/core;$out/android;$junitJar"
     Write-Host '== Running tests'
-    & java -jar $junitJar execute --class-path "$out/core;$out/test;$out/onnx;$out/onnx-test;$out/camera;$out/tools;$out/tools-test;$out/regclient;$out/regclient-test;$out/android;$out/android-test;$opencvJar;$onnxJar" --scan-class-path --disable-banner --details=tree
+    & java -jar $junitJar execute --class-path "$out/core;$out/test;$out/onnx;$out/onnx-test;$out/camera;$out/camera-test;$out/tools;$out/tools-test;$out/regclient;$out/regclient-test;$out/android;$out/android-test;$opencvJar;$onnxJar" --scan-class-path --disable-banner --details=tree
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
 }
 
