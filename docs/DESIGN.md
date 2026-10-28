@@ -524,6 +524,17 @@ keeps up with the device frame rate. `LivenessTools interop --device webcam:0|sb
 [--disconnect manual]` runs both and writes one Markdown report per device and machine type, which is the
 interoperability evidence for each supported vendor.
 
+**Hardware acceleration.** YuNet, Face Mesh and Iris run through OpenCV DNN, which can target the GPU over
+OpenCL. With `-Dmosip.liveness.acceleration=auto` the engine times each model on CPU, OpenCL and OpenCL FP16 at
+start, runs all three on the same fixed input, rejects any GPU target whose output differs from the CPU's by more
+than 0.5 % of its range, and switches only when the GPU is at least 15 % faster. `opencl` / `opencl_fp16` force a
+target (still with the output check). The choice and timings appear in the interop report. CPU is the default
+because of what a laptop with Intel UHD graphics showed: the first OpenCL use compiled kernels for about
+3.5 minutes before the engine started (about 2 s afterwards), the GPU was slower for Face Mesh (7.4 vs 2.2 ms) and
+Iris (14 vs 3.4 ms), YuNet's GPU timing swung between 7.7 and 19.2 ms across runs, and FP16 moved outputs by
+0.6-1 % and was rejected. MiniFASNet runs on ONNX Runtime's CPU build; a GPU build of ONNX Runtime (CUDA or
+DirectML) would be the step after that for machines that have one.
+
 The mock device plus `SimulatedSubject` (live / photo / screen / replay / nobody / two people; placement in
 the frame; mask or sunglasses; cooperative / unresponsive / wrong action) is the automated liveness and PAD scenario framework from the bonus tasks.
 

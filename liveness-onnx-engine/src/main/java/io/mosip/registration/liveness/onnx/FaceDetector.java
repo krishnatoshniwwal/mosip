@@ -6,11 +6,13 @@ import org.opencv.core.Mat;
 import org.opencv.core.Point;
 import org.opencv.core.Rect;
 import org.opencv.core.Size;
+import org.opencv.dnn.Dnn;
 import org.opencv.objdetect.FaceDetectorYN;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.logging.Logger;
@@ -36,7 +38,11 @@ public final class FaceDetector implements AutoCloseable {
     private static final int TOP_K = 50;
     private static final int RESULT_COLUMNS = 15;
 
+    /** Largest GPU-vs-CPU output difference accepted, relative to the largest output (about 0.5 %). */
+    static final double ACCEPTED_DIFFERENCE = 0.005;
+
     private final FaceDetectorYN yunet;
+    private final InferenceTarget.Choice acceleration;
     private Size inputSize;
 
     /**
@@ -49,13 +55,23 @@ public final class FaceDetector implements AutoCloseable {
             throw new LivenessEngineException("Face detection model not found: " + model
                     + ". Run build.ps1 or build.sh once to download it.");
         }
+        // Compared on YuNet's raw outputs: the detector's final face list would be empty on a synthetic input.
+        acceleration = InferenceTarget.choose("yunet", Arrays.asList(InferenceTarget.OPENCL, InferenceTarget.OPENCL_FP16),
+                t -> InferenceTarget.netTrial(Dnn.readNetFromONNX(model.toString()), t, 320), ACCEPTED_DIFFERENCE);
+        InferenceTarget target = acceleration.target;
         try {
             inputSize = new Size(320, 320);
-            yunet = FaceDetectorYN.create(model.toString(), "", inputSize, SCORE_THRESHOLD, NMS_THRESHOLD, TOP_K);
+            yunet = FaceDetectorYN.create(model.toString(), "", inputSize, SCORE_THRESHOLD, NMS_THRESHOLD, TOP_K,
+                    target.dnnBackend(), target.dnnTarget);
         } catch (RuntimeException e) {
             throw new LivenessEngineException("Could not load face detection model " + model, e);
         }
-        LOG.info("Face detector: loaded YuNet model from " + model);
+        LOG.info("Face detector: loaded YuNet model from " + model + " (" + acceleration + ")");
+    }
+
+    /** Which target YuNet runs on, and the timings behind the choice. */
+    InferenceTarget.Choice acceleration() {
+        return acceleration;
     }
 
     /**

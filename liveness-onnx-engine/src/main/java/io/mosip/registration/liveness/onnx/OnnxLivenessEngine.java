@@ -52,6 +52,7 @@ public final class OnnxLivenessEngine implements LivenessEngine {
     private final AntiSpoofAnalyzer antiSpoofAnalyzer;
     private final ReplayAttackDetector replayDetector = new ReplayAttackDetector();
     private final OcclusionAnalyzer occlusionAnalyzer = new OcclusionAnalyzer();
+    private final String accelerationReport;
     private volatile String lastDiagnostics = "no frame analysed yet";
 
     /**
@@ -98,6 +99,25 @@ public final class OnnxLivenessEngine implements LivenessEngine {
                 + "+replay-cues+occlusion (" + source + ")";
         this.engineInfo = new EngineInfo("MOSIP Real-Time Liveness Engine", ENGINE_VERSION, modelVersion,
                 measurable, true);
+
+        StringBuilder accel = new StringBuilder(faceDetector.acceleration().toString());
+        if (faceMesh != null) {
+            for (InferenceTarget.Choice c : faceMesh.acceleration()) {
+                accel.append("; ").append(c);
+            }
+        }
+        accel.append("; minifasnet: onnxruntime cpu");
+        this.accelerationReport = accel.toString();
+        LOG.info("Inference targets (" + InferenceTarget.PROPERTY + "=" + InferenceTarget.setting() + "): "
+                + accelerationReport);
+    }
+
+    /**
+     * Where each model runs and the per-target timings measured at start, e.g.
+     * {@code "yunet: cpu 14.7 ms, opencl 33.2 ms, opencl_fp16 14.9 ms -> cpu; ..."}. For diagnostics and reports.
+     */
+    public String accelerationReport() {
+        return accelerationReport;
     }
 
     /** Model directory from {@value #MODEL_DIR_PROPERTY}, or {@code models} in the working directory. */

@@ -14,6 +14,7 @@ import org.opencv.imgproc.Imgproc;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.logging.Level;
@@ -98,6 +99,7 @@ final class FaceMeshAnalyzer implements AutoCloseable {
     /** Null without the iris model: eye openness is then unknown and blink is not offered. */
     private final Net iris;
     private final List<String> irisOutputs;
+    private final List<InferenceTarget.Choice> acceleration = new ArrayList<>();
 
     /** One face's measurements; NaN fields mean the value could not be measured on this frame. */
     static final class Measurement {
@@ -130,28 +132,44 @@ final class FaceMeshAnalyzer implements AutoCloseable {
 
     /** @return the analyzer, or null without a usable face mesh model (blink and smile then stay off) */
     static FaceMeshAnalyzer loadIfPresent(Path modelDir) {
-        Net mesh = load(modelDir.resolve(MESH_FILE));
+        List<InferenceTarget.Choice> choices = new ArrayList<>();
+        Net mesh = load(modelDir.resolve(MESH_FILE), MESH_SIZE, choices);
         if (mesh == null) {
             return null;
         }
-        Net iris = load(modelDir.resolve(IRIS_FILE));
+        Net iris = load(modelDir.resolve(IRIS_FILE), IRIS_SIZE, choices);
         if (iris == null) {
             LOG.info("Iris model " + IRIS_FILE + " not available: eye openness (blink) is disabled");
         }
-        return new FaceMeshAnalyzer(mesh, iris);
+        FaceMeshAnalyzer analyzer = new FaceMeshAnalyzer(mesh, iris);
+        analyzer.acceleration.addAll(choices);
+        return analyzer;
     }
 
-    private static Net load(Path model) {
+    /** Which target each loaded model runs on, and the timings behind the choice. */
+    List<InferenceTarget.Choice> acceleration() {
+        return acceleration;
+    }
+
+    private static Net load(Path model, int inputSize, List<InferenceTarget.Choice> choices) {
         if (!Files.isRegularFile(model)) {
             return null;
         }
         try {
-            Net net = Dnn.readNetFromTFLite(model.toAbsolutePath().toString());
+            String file = model.toAbsolutePath().toString();
+            InferenceTarget.Choice choice = InferenceTarget.choose(model.getFileName().toString(),
+                    Arrays.asList(InferenceTarget.OPENCL, InferenceTarget.OPENCL_FP16),
+                    t -> InferenceTarget.netTrial(Dnn.readNetFromTFLite(file), t, inputSize),
+                    FaceDetector.ACCEPTED_DIFFERENCE);
+            Net net = Dnn.readNetFromTFLite(file);
             if (net.empty()) {
                 LOG.warning("Model could not be read: " + model);
                 return null;
             }
-            LOG.info("Loaded " + model);
+            net.setPreferableBackend(choice.target.dnnBackend());
+            net.setPreferableTarget(choice.target.dnnTarget);
+            choices.add(choice);
+            LOG.info("Loaded " + model + " (" + choice + ")");
             return net;
         } catch (RuntimeException e) {
             LOG.log(Level.WARNING, "Model could not be loaded: " + model, e);

@@ -134,6 +134,15 @@ final class InteropTestTool {
         if (device.info().getDeviceId().startsWith(OpenCvCameraDevice.DEVICE_ID_PREFIX)) {
             report.append(cameraSources(new SystemCameraSourceCheck().current()));
         }
+        if (engine instanceof OnnxLivenessEngine) {
+            String accel = ((OnnxLivenessEngine) engine).accelerationReport();
+            System.out.println("Inference targets: " + accel);
+            report.append("\n## Hardware acceleration\n\nPer-model timings at engine start and the target chosen "
+                    + "(`-Dmosip.liveness.acceleration=cpu|auto|opencl|opencl_fp16`, default cpu):\n\n");
+            for (String model : accel.split("; ")) {
+                report.append("- ").append(model).append('\n');
+            }
+        }
         engine.close();
         Files.write(out, report.toString().getBytes(StandardCharsets.UTF_8));
         System.out.println((conformance.passed() ? "PASS" : "FAIL") + " - report: " + out.toAbsolutePath());
