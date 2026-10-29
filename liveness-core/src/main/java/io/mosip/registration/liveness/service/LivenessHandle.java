@@ -81,7 +81,9 @@ public final class LivenessHandle {
     void begin() {
         // Schedule the ticker before the start task: a session can end inside start (no consent, locked out),
         // and afterStep() then shuts the ticker down. Ticks before start are ignored by the session.
-        ticker.scheduleAtFixedRate(() -> submit(() -> {
+        // Fixed delay, not fixed rate: ticks only compare against the clock, so ticks missed while Android kept the
+        // process cached must not all run at once when it resumes.
+        ticker.scheduleWithFixedDelay(() -> submit(() -> {
             session.onTick(clock.getAsLong());
             afterStep();
         }), TICK_MS, TICK_MS, TimeUnit.MILLISECONDS);

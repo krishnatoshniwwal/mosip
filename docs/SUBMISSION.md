@@ -56,7 +56,7 @@ All of it runs on the station, so it behaves identically online and offline.
 
 | Measure | Value |
 |---|---|
-| Automated tests | 273, across all modules |
+| Automated tests | 280 Java tests across all modules, plus 14 Flutter tests for the Android capture screen |
 | Engine time per frame (CPU, laptop, ~500x350 frames, all models) | about 50–55 ms |
 | MOSIP mock SBI | discovered and streamed at about 22 fps; all conformance checks pass |
 | Eye openness (Iris model) on public test photos | closed 0.03–0.13, open 0.25–0.36 |
@@ -67,9 +67,8 @@ All of it runs on the station, so it behaves identically online and offline.
 
 - Publish the ISO/IEC 30107-3 evaluation on recorded sessions from the target devices, and calibrate the
   thresholds from it.
-- Android: the core library already runs on Android's Java version, and the CameraX device and Flutter bridge
-  are written and unit-tested (not yet run on a device), and the camera adapter turns frames upright. An Android
-  inference engine running the same models, and the Flutter screen, remain.
+- Android: run the example app on target phones and tablets. The Android build (same engine and models, CameraX,
+  the Flutter capture screen) is built, lint-checked and tested, but has not run on a device yet.
 - Merge the controller changes into `mosip/registration-client`, and validate on real L0/L1 hardware.
 
 Design details: [DESIGN.md](DESIGN.md) · Screens: [UI_UX.md](UI_UX.md) · Technology choices:

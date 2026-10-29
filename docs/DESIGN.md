@@ -23,7 +23,7 @@ and the integration plan for the Desktop and Android Registration Clients. Compa
 flowchart LR
     subgraph Devices["Device adapters (FaceCaptureDevice)"]
         SBI["SbiFaceStreamDevice<br/>SBI STREAM /stream (MJPEG)"]
-        AND["Android camera / vendor SDK adapter<br/>(planned)"]
+        AND["CameraXFaceCaptureDevice<br/>Android camera (CameraX)"]
         MOCK["MockFaceDevice<br/>dev & test"]
     end
     subgraph Core["liveness-core (pure Java 11, no dependencies)"]
@@ -444,18 +444,24 @@ Integration points in the Registration Client:
   Kannada, Tamil, Filipino, Amharic, Sinhala. They are UTF-8 files generated from one table
   (`tools/gen_liveness_messages.py`) and checked for completeness by tests. Translations are
   machine-assisted drafts and need native-speaker review before deployment.
-- **Android (Flutter + Java):** `liveness-core` is plain Java 11 bytecode with no dependencies, so it runs
-  unchanged in the Android client's native layer. `liveness-android` sketches the adapters: a CameraX
-  `FaceCaptureDevice` (NV21 frames), a Flutter `MethodChannel`/`EventChannel` bridge (`start`, `retry`,
-  `cancel`, update stream) and an engine wrapper. The camera adapter caps the analysis frame rate (10 fps by
-  default) by dropping frames before analysis, so every analysed frame gets its own verdict. The module is plain
-  Java: it is compiled and unit-tested in the regular build, but not packaged as an Android library yet (no
-  Gradle wrapper or settings), the bridge uses its own copies of Flutter's interfaces, and there is no Android
-  inference engine. Frames reach the engine upright already: the camera adapter applies CameraX's
-  `rotationDegrees` (front cameras commonly report 270°) with `Nv21Rotator`, swapping width and height for a
-  quarter turn. It does not mirror them, so the engine sees the face as a desktop webcam would and "turn left"
-  means the same on both; only the preview is mirrored. The planned engine then runs the same models: the
-  MediaPipe files natively in TFLite, MiniFASNet in ONNX Runtime for Android. The screen design is in [UI_UX.md](UI_UX.md#8-android-designed-not-built).
+- **Android (Flutter + Java):** the Android client runs the same core and the same engine as the desktop.
+  `OnnxLivenessEngine` uses only OpenCV's and ONNX Runtime's Java APIs, and both publish Android builds with
+  those APIs, so the engine is compiled unchanged against them (Android lint finds no API it uses missing on
+  Android 8.0, the minimum). The Android builds are newer than the desktop's (OpenCV 4.14, ONNX Runtime 1.30)
+  because their native libraries are 16 KB page-aligned, which Android 15+ devices need to load them.
+  - `liveness-android/src/main`: plain Java, unit-tested on the JVM in the regular build. It holds the CameraX
+    `FaceCaptureDevice` (NV21, capped at 10 analysed frames a second by dropping frames before analysis, turned
+    upright with `Nv21Rotator`, never mirrored, so "turn left" means the same on both platforms) and the
+    channel bridge, which sends every text already translated from the shared bundles.
+  - `liveness-android/src/android`: Android APIs. It loads OpenCV's native library, copies the models out of the
+    APK, and installs a bundled signed package through `ModelRepository` (same checks as desktop). It also
+    binds CameraX's preview and analysis to the screen, and encodes the verified frame as JPEG.
+  - `liveness-android/liveness-library.gradle`: the sources, dependencies and bundled models, applied by both
+    the standalone AAR build and the Flutter plugin, so the two cannot drift.
+  - `liveness-flutter`: the plugin (methods, events, preview platform view, Android camera permission, screen
+    kept on during a session) and `LivenessCaptureScreen`, built to [UI_UX.md](UI_UX.md#8-android). On
+    Android the camera frame that passed is the captured face, returned as `capturedJpeg`, so no capture binding
+    is needed; with an SBI device on Android the desktop's `LivenessGate` applies unchanged.
 
 ## 5. Configuration
 
@@ -708,7 +714,7 @@ the frame; mask or sunglasses; cooperative / unresponsive / wrong action) is the
 | Next | Scope |
 |---|---|
 | **Evaluation report** | Record bona fide and attack sessions on the target devices (`record`), run `evaluate`, and publish APCER per attack type, BPCER and the DET curve. Calibrate the passive threshold, `pad.minAttackFrames`, and the replay, occlusion, injection and pitch thresholds from it. |
-| **Android** | Android library packaging (Gradle wrapper and settings) for `liveness-android`. An Android engine (TFLite + ONNX Runtime). The Flutter screen from [UI_UX.md](UI_UX.md). (Done: the module compiles and its tests run in the regular build, throttling drops frames before analysis instead of reusing an earlier frame's result, and the camera adapter turns frames upright.) |
+| **Android** | Run the example app on phones and tablets (low-end included) and tune the analysis rate per device class; merge `liveness-flutter` into the Android Registration Client. (Done: the AAR build, the engine on OpenCV/ONNX Runtime for Android, CameraX, signed models from the APK, the Flutter screen with tests, release APKs that pass R8 and 16 KB alignment.) |
 | **Registration Client merge** | Apply the controller changes in [REGCLIENT_INTEGRATION.md](REGCLIENT_INTEGRATION.md) to `mosip/registration-client`. |
 | **Field validation** | A passing session on real L0/L1 SBI hardware; `interop` reports per supported device; native-speaker review of the translations. |
 | **Later** | Server-side evidence check in the registration processor (packet validator stage); spoken prompts and accessibility profiles; age-aware policy for young children. |

@@ -2,7 +2,7 @@
 
 The face liveness screens for resident face capture, operator authentication and supervisor authentication, on
 the Desktop Registration Client (implemented: `liveness-regclient`) and the Android Registration Client
-(designed here; the Flutter screen is not built yet). The behaviour is driven by one shared session, so the
+(implemented: `liveness-flutter`). The behaviour is driven by one shared session, so the
 three screens and both platforms show the same states, messages and choices.
 
 The principles, from the problem statement:
@@ -194,10 +194,11 @@ decision, challenges, PAD and injection detail) and the engine's per-frame reado
 pitch, replay cues). The production capture dialog has no diagnostics. The same information is in the
 Registration Client's audit table.
 
-## 8. Android (designed, not built)
+## 8. Android
 
 The Android Registration Client is Flutter on top of a Java layer. The liveness core runs in the Java layer
-unchanged, and the Flutter screen should look and behave like the desktop one.
+unchanged, and the Flutter screen (`LivenessCaptureScreen` in `liveness-flutter`) looks and behaves like the
+desktop one.
 
 **Layout.** Portrait, so the preview goes on top and the status below:
 
@@ -228,7 +229,7 @@ it:
 
 | Screen element | Bridge field |
 |---|---|
-| Instruction, hint | `messageCode`, `guidanceCode` (translate in Flutter with the same keys); `message`, `guidance` (English fallback) |
+| Instruction, hint | `messageText`, `guidanceText`, translated on the Java side from the same bundles as desktop; `message`, `guidance` (English) and `messageCode`, `guidanceCode` for callers that translate themselves |
 | Oval and arrows | `captureArea` (`centerX`, `centerY`, `radiusX`, `radiusY`), `state`, `challenge` |
 | Step, countdown, progress | `challengeNumber`, `challengeCount`, `remainingMs`, `progress` |
 | Attempts, Retry | `attempt`, `maxAttempts`, `retryAvailable` |

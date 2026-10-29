@@ -1,5 +1,6 @@
 package io.mosip.registration.liveness.audit;
 
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -103,7 +104,7 @@ public final class LivenessMetrics {
 
         @Override
         public String toString() {
-            return String.format("sessions=%d attempts=%d passed=%d (passive-only %d) failed=%d cancelled=%d "
+            return String.format(Locale.ROOT, "sessions=%d attempts=%d passed=%d (passive-only %d) failed=%d cancelled=%d "
                             + "pad=%d injection=%d active=%d retryRate=%.2f failureRate=%.2f avgFrame=%.2fms avgChallenge=%.0fms "
                             + "frames=%d dropped=%d",
                     sessions, attempts, passed, passedPassiveOnly, failed, cancelled, padDetections, injectionDetections,

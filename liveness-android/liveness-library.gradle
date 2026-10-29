@@ -1,0 +1,57 @@
+// Shared by the standalone AAR build (liveness-android/build.gradle) and the Flutter plugin's Android module
+// (liveness-flutter/android). Both compile the same sources, so the library and the plugin cannot drift apart:
+//   liveness-core            session, gate, config, audit, i18n bundles      (plain Java)
+//   liveness-onnx-engine     the desktop engine, unchanged                   (OpenCV + ONNX Runtime Java APIs)
+//   liveness-android/main    CameraX device adapter, NV21 tools, Flutter bridge (plain Java, unit-tested on the JVM)
+//   liveness-android/android OpenCV loading, model install, CameraX binding, JPEG encoding (Android APIs)
+// and bundle the same models as the desktop client in assets/liveness-models/.
+
+def repoRoot = buildscript.sourceFile.parentFile.parentFile
+def modelSource = file(project.findProperty('liveness.modelPackage') ?: "$repoRoot/models")
+def requiredModels = ['face_detection_yunet_2023mar.onnx', 'minifasnet_v2_2.7_80x80.onnx',
+                      'minifasnet_v1se_4.0_80x80.onnx', 'face_landmark.tflite', 'iris_landmark.tflite']
+def generatedAssets = layout.buildDirectory.dir('generated/liveness-assets')
+
+android {
+    sourceSets {
+        main {
+            java.srcDirs += ["$repoRoot/liveness-core/src/main/java",
+                             "$repoRoot/liveness-onnx-engine/src/main/java",
+                             "$repoRoot/liveness-android/src/main/java",
+                             "$repoRoot/liveness-android/src/android/java"]
+            resources.srcDirs += ["$repoRoot/liveness-core/src/main/resources"]
+            assets.srcDirs += [generatedAssets]
+        }
+    }
+}
+
+dependencies {
+    // OpenCV and ONNX Runtime publish Android builds with the same Java APIs the desktop engine is written against.
+    // Newer than the desktop's 4.9.0 / 1.17.0 because these builds have 16 KB-aligned native libraries, which
+    // Android 15+ devices with 16 KB memory pages need to load them (and Google Play requires).
+    implementation 'org.opencv:opencv:4.14.0'
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.30.0'
+    implementation 'androidx.core:core:1.13.1'
+    implementation 'androidx.camera:camera-core:1.4.1'
+    implementation 'androidx.camera:camera-camera2:1.4.1'
+    implementation 'androidx.camera:camera-lifecycle:1.4.1'
+    implementation 'androidx.camera:camera-view:1.4.1'
+}
+
+// The YuNet, Face Mesh and Iris models are downloaded (checksum-pinned) by build.sh / build.ps1 into models/.
+// -Pliveness.modelPackage=<dir> bundles a signed package (with manifest.properties and manifest.sig) instead.
+def copyLivenessModels = tasks.register('copyLivenessModels', Copy) {
+    from(modelSource) {
+        include requiredModels
+        include 'manifest.properties', 'manifest.sig'
+    }
+    into generatedAssets.map { it.dir('liveness-models') }
+    doFirst {
+        def missing = requiredModels.findAll { !new File(modelSource, it).isFile() }
+        if (!missing.isEmpty()) {
+            throw new GradleException("Liveness models missing from $modelSource: $missing. "
+                    + "Run ./build.sh or .\\build.ps1 once in the repository root to download them.")
+        }
+    }
+}
+tasks.named('preBuild') { dependsOn copyLivenessModels }

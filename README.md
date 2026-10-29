@@ -42,13 +42,14 @@ in behind interfaces, so no vendor is hard-wired.
 | Liveness state machine: passive, PAD, random challenges, retries, failure actions | Applying the controller changes in `mosip/registration-client` ([guide](docs/REGCLIENT_INTEGRATION.md)) |
 | Desktop Registration Client integration (`liveness-regclient`): JavaFX capture dialog for resident capture, operator login and supervisor auth; MDS stream adapter; config from synced global params; audit into `AuditManagerService` | |
 | Capture binding: liveness gates the MDS rCapture / face match and watches the stream until it returns | |
-| Per-workflow configuration with strict validation | Android engine (TFLite/ONNX Runtime) + Flutter screen; the CameraX adapter and Flutter bridge are built and unit-tested |
+| Per-workflow configuration with strict validation | |
+| Android: the desktop engine on OpenCV/ONNX Runtime for Android, CameraX, signed models from the APK, the Flutter capture screen (`liveness-flutter`) and an AAR build (`liveness-android`) | Running it on a phone or emulator (built, lint-checked and tested without one) |
 | SBI device discovery + `STREAM /stream` adapter, tested against the MOSIP mock SBI | A passing session on real L0/L1 hardware |
 | Mock L0/L1 device + simulated subject and engine (live, photo, screen, replay, …) | |
 | Audit events (no biometric data) and anonymous metrics | |
 | Reference capture UI (Swing) with diagnostic mode | |
 | Explicit camera consent before the device is opened (enforced by the service, audited, translated) | |
-| 273 automated tests | |
+| 280 Java tests + 14 Flutter tests | |
 
 The live engine (`liveness-onnx-engine`) detects faces with OpenCV's YuNet model and measures head turns
 from its five landmarks. Smile comes from the MediaPipe Face Mesh model, look up/down from how the mesh's 3D
@@ -67,13 +68,23 @@ Needs JDK 11+. No Maven required: the scripts download JUnit, OpenCV, ONNX Runti
 `-Dmosip.liveness.models=<dir>` at a folder containing `face_detection_yunet_2023mar.onnx`.
 
 ```powershell
-.\build.ps1          # compile + 273 tests
+.\build.ps1          # compile + 280 tests
 .\build.ps1 -Run     # launch LIVE webcam capture & real liveness
 .\build.ps1 -Run -Sim # launch simulated desktop demo (mock device)
 .\build.ps1 -Run -Device sbi:auto   # live capture from an SBI face device (MDS on 127.0.0.1:4501-4600)
 .\build.ps1 -Run -RegClient        # Registration Client screens (operator login, resident face, supervisor) with liveness
 .\build.ps1 -Run -RegClient -Sim   # the same with the mock device; try a photo swapped in during the capture
 ```
+
+Android (needs the Android SDK and Flutter; run a script above once first, for the models):
+
+```bash
+cd liveness-android && ./gradlew assembleRelease      # AAR for the client's native layer
+cd liveness-flutter && flutter test                   # capture screen and channel tests
+cd liveness-flutter/example && flutter run            # three workflows; "Simulated camera" needs no camera
+```
+
+See [liveness-flutter/README.md](liveness-flutter/README.md).
 ```bash
 ./build.sh --run     # macOS / Linux / Git Bash
 mvn verify           # with Maven
@@ -165,6 +176,8 @@ liveness-onnx-engine/                YuNet + MiniFASNet engine, ReplayAttackDete
 liveness-tools/                      CLI: record, evaluate, interop, models
 liveness-desktop-demo/               reference face capture screen (Swing)
 liveness-regclient/                  Desktop Registration Client integration: JavaFX dialog, MDS stream, config, audit
+liveness-android/                    Android native layer: CameraX, model install, engine on Android; AAR build
+liveness-flutter/                    Flutter plugin + capture screen for the Android client, with an example app
 config/liveness.properties           sample per-workflow policy
 docs/DESIGN.md                       technical design: architecture, flows, config, errors, security, ISO 30107
 docs/REGCLIENT_INTEGRATION.md        controller-by-controller changes for mosip/registration-client
