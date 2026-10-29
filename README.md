@@ -47,7 +47,7 @@ in behind interfaces, so no vendor is hard-wired.
 | Audit events (no biometric data) and anonymous metrics | |
 | Reference capture UI (Swing) with diagnostic mode | |
 | Explicit camera consent before the device is opened (enforced by the service, audited, translated) | |
-| 238 automated tests | |
+| 262 automated tests | |
 
 The live engine (`liveness-onnx-engine`) detects faces with OpenCV's YuNet model and measures head turns
 from its five landmarks. Smile comes from the MediaPipe Face Mesh model, look up/down from how the mesh's 3D
@@ -66,7 +66,7 @@ Needs JDK 11+. No Maven required: the scripts download JUnit, OpenCV, ONNX Runti
 `-Dmosip.liveness.models=<dir>` at a folder containing `face_detection_yunet_2023mar.onnx`.
 
 ```powershell
-.\build.ps1          # compile + 238 tests
+.\build.ps1          # compile + 262 tests
 .\build.ps1 -Run     # launch LIVE webcam capture & real liveness
 .\build.ps1 -Run -Sim # launch simulated desktop demo (mock device)
 .\build.ps1 -Run -Device sbi:auto   # live capture from an SBI face device (MDS on 127.0.0.1:4501-4600)
@@ -166,6 +166,7 @@ docs/REGCLIENT_INTEGRATION.md        controller-by-controller changes for mosip/
 docs/UI_UX.md                        screens, states and messages per workflow, desktop and Android
 docs/TECHNOLOGY_EVALUATION.md        why these models and runtimes, with measurements
 docs/SUBMISSION.md                   the 1-2 page submission document (evaluation results still to fill in)
+docs/DEMO.md                         live demo script and evaluation day plan
 ```
 
 ## Using it from a workflow
