@@ -9,12 +9,18 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
+import org.opencv.core.Scalar;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -30,6 +36,10 @@ class OpenCvCameraDeviceTest {
         final long readMs;
         volatile int framesBeforeFailure = Integer.MAX_VALUE;
         volatile boolean released;
+        /** Return each frame this many extra times, as Media Foundation does when the camera is slower than the reads. */
+        volatile int redeliveries;
+        private int frameNumber;
+        private int redelivered;
 
         FakeSource(long readMs) {
             this.readMs = readMs;
@@ -51,6 +61,13 @@ class OpenCvCameraDeviceTest {
                 return false;
             }
             into.create(4, 4, CvType.CV_8UC3);
+            if (redelivered < redeliveries && frameNumber > 0) {
+                redelivered++;
+            } else {
+                redelivered = 0;
+                frameNumber++;
+            }
+            into.setTo(new Scalar(frameNumber % 256, frameNumber / 256 % 256, 0));
             return true;
         }
 
@@ -161,6 +178,30 @@ class OpenCvCameraDeviceTest {
         assertTrue(stopped.await(2, TimeUnit.SECONDS));
         assertEquals(DeviceStatus.READY, device.status());
         device.close();
+    }
+
+    @Test
+    void aFrameTheBackendReturnsAgainIsNotDeliveredTwice() throws Exception {
+        FakeSource source = new FakeSource(2);
+        source.redeliveries = 2;
+        OpenCvCameraDevice device = deviceOver(source);
+        device.open();
+        List<String> seen = Collections.synchronizedList(new ArrayList<>());
+        CountDownLatch five = new CountDownLatch(5);
+        device.startStream(new Recorder() {
+            @Override
+            public void onFrame(FaceFrame frame) {
+                seen.add(Arrays.toString(frame.getData()));
+                five.countDown();
+            }
+        });
+        assertTrue(five.await(2, TimeUnit.SECONDS));
+        device.close();
+        synchronized (seen) {
+            for (int i = 1; i < seen.size(); i++) {
+                assertNotEquals(seen.get(i - 1), seen.get(i), "frame " + i + " repeats the one before it");
+            }
+        }
     }
 
     @Test

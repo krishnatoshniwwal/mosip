@@ -13,6 +13,7 @@ import org.opencv.core.Mat;
 import org.opencv.videoio.VideoCapture;
 import org.opencv.videoio.Videoio;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Locale;
@@ -31,6 +32,8 @@ public class OpenCvCameraDevice implements FaceCaptureDevice {
 
     private static final int DEFAULT_WIDTH = 640;
     private static final int DEFAULT_HEIGHT = 480;
+    /** Wait before reading again after the backend returned the previous frame unchanged. */
+    private static final long REDELIVERY_POLL_MS = 5;
     /** Device IDs of local cameras start with this, followed by the camera index. */
     public static final String DEVICE_ID_PREFIX = "OPENCV-CAM-";
 
@@ -234,6 +237,7 @@ public class OpenCvCameraDevice implements FaceCaptureDevice {
         Mat mat = new Mat();
         Thread self = Thread.currentThread();
         boolean errorReported = false;
+        byte[] previous = null;
 
         try {
             while (captureThread == self && !self.isInterrupted()) {
@@ -268,6 +272,15 @@ public class OpenCvCameraDevice implements FaceCaptureDevice {
                 int channels = mat.channels();
                 byte[] data = new byte[width * height * channels];
                 mat.get(0, 0, data);
+
+                // Media Foundation returns the last frame again when the camera has not exposed a new one yet
+                // (its real rate drops in low light). That copy is not a new frame: passing it on would look
+                // like an injected stream's repeats to the session. Poll again shortly instead.
+                if (Arrays.equals(data, previous)) {
+                    Thread.sleep(REDELIVERY_POLL_MS);
+                    continue;
+                }
+                previous = data;
 
                 FaceFrame frame = new FaceFrame(
                         deviceId,
