@@ -178,6 +178,28 @@ if (isFace(currentModality) && faceLiveness.isEnabled(LivenessWorkflow.RESIDENT_
 The exception photo (`isExceptionPhoto`) can use the same call. A face that fails liveness is never added to
 `RegistrationDTO`.
 
+**Signed liveness evidence.** At startup, give `RegClientLiveness` a signer over the machine's TPM key, so the
+evidence is signed with the same key as the packet:
+
+```java
+liveness.setEvidenceSigner(new EvidenceSigner() {
+    public String algorithm() { return "RS256"; }                                 // TPM keys are RSA 2048
+    public String keyId() { return machineId; }                                   // the server looks up the machine's public key
+    public byte[] sign(byte[] input) { return clientCryptoFacade.getClientSecurity().signData(input); }
+}, machineId);
+```
+
+Then, in the callback above, for both outcomes:
+
+```java
+String evidence = faceLiveness.issueEvidence(r, faceBioValueBytes, registrationId);   // null without a signer
+// store it with the face, e.g. BIR others: LIVENESS_EVIDENCE=<evidence>
+```
+
+On the server, `LivenessEvidenceJws.verify(evidence, machinePublicKey, faceBioValueBytes, registrationId, now)`
+accepts the face only if this station signed it, liveness passed, and the evidence names exactly this face. See
+[DESIGN.md](DESIGN.md#signed-liveness-evidence-in-the-packet).
+
 ### 4.2 Operator authentication: `AuthenticationController.executeFaceValidationTask` (line 515)
 
 This also covers the supervisor (reviewer) authentication on the same screen (`isReviewer`, line 638). Replace

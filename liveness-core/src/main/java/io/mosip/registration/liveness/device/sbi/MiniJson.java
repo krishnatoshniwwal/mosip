@@ -6,11 +6,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Minimal JSON reader for SBI responses, so the core keeps no dependencies. Objects become
+ * Minimal JSON reader for SBI responses and liveness evidence, so the core keeps no dependencies. Objects become
  * {@code Map<String, Object>}, arrays {@code List<Object>}, numbers {@code Double}, plus String,
  * Boolean and null. Input size is bounded by the caller.
  */
-final class MiniJson {
+public final class MiniJson {
 
     private static final int MAX_DEPTH = 32;
 
@@ -22,7 +22,7 @@ final class MiniJson {
     }
 
     /** @throws IllegalArgumentException on malformed input */
-    static Object parse(String json) {
+    public static Object parse(String json) {
         MiniJson p = new MiniJson(json);
         p.skipWhitespace();
         Object value = p.value(0);

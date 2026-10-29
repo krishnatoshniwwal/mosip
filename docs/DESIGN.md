@@ -567,6 +567,40 @@ Faults that are not the person's doing never use up their attempts. Retry after 
 - **Device trust**: SBI L0/L1 signing of the final `/capture` response still applies. Liveness adds a check
   on the presentation itself, not on device authenticity.
 
+### Signed liveness evidence in the packet
+
+The MDS signature proves which device captured a face. It does not prove that liveness ran, or that the face in
+the packet is the one that passed it. A patched or compromised client could skip liveness and still produce a
+packet the server accepts. `evidence/` closes that gap:
+
+- After each resident capture, `RegClientLiveness.issueEvidence` builds a `LivenessEvidence` record. It holds the
+  session ID, workflow, outcome, gate status, passive score, the challenges asked, attempts and their failure
+  reasons, engine and model package, station ID and time. It also holds a **SHA-256 of the exact biometric bytes
+  the packet stores** (the rCapture `bioValue`) and a SHA-256 of the registration ID. It contains no image,
+  template or landmark.
+- The record is signed as a **compact JWS** (ES256 or RS256), the envelope MOSIP devices already use for signed
+  biometrics, so any JOSE library can check it. In the client, the `EvidenceSigner` wraps the station's
+  **TPM machine key**, the same key that signs packets. The private key never leaves the TPM, and the server
+  already knows the public key from the machine's registration.
+- The packet carries the token next to the face, e.g. as a `LIVENESS_EVIDENCE` entry in the face BIR's `others`
+  map, beside the entries the client already writes there.
+- On the server, `LivenessEvidenceJws.verify` fails closed. It requires `alg` to match the station key type
+  (`none` is refused and the algorithm cannot be switched), checks the signature before reading the payload,
+  and then checks the subject and the capture hash. Each result has its own status:
+
+| Status | Meaning | Server action |
+|---|---|---|
+| `ACCEPTED` | Station-signed, liveness passed, names this exact face and registration | Normal processing |
+| `LIVENESS_NOT_PASSED` | Genuine record that liveness failed (e.g. resident sent to supervisor review) | Manual adjudication |
+| `CAPTURE_MISMATCH` | Genuine evidence, but for a different face: the face was swapped after liveness | Reject the packet |
+| `SUBJECT_MISMATCH` | Evidence copied from another registration | Reject the packet |
+| `BAD_SIGNATURE` / `MALFORMED` / `NOT_YET_VALID` | Forged, tampered with, wrong station, or issued in the future | Reject the packet |
+
+Evidence is issued for failed runs too, so a supervisor override always comes with a signed record of why it was
+needed. `iat` is not given a maximum age: offline stations upload packets days later. The server can compare it
+with the packet's creation time instead. Tool: `LivenessTools evidence verify <evidence.jws> <station-public.pem>
+--capture face.bin --subject RID`.
+
 ## 8. ISO/IEC 30107 alignment
 
 - **Terminology (30107-1)**: `AttackType` follows PAI species (printed photo, screen display, video
@@ -669,6 +703,7 @@ the frame; mask or sunglasses; cooperative / unresponsive / wrong action) is the
 - Desktop Registration Client module (`liveness-regclient`) with capture binding.
 - ISO/IEC 30107-3 evaluation tool, dataset recorder and device conformance suite.
 - Optional GPU acceleration.
+- Signed liveness evidence (JWS) for the registration packet, with the server-side verifier.
 
 | Next | Scope |
 |---|---|
@@ -676,4 +711,4 @@ the frame; mask or sunglasses; cooperative / unresponsive / wrong action) is the
 | **Android** | Android library packaging (Gradle wrapper and settings) for `liveness-android`. An Android engine (TFLite + ONNX Runtime). The Flutter screen from [UI_UX.md](UI_UX.md). (Done: the module compiles and its tests run in the regular build, throttling drops frames before analysis instead of reusing an earlier frame's result, and the camera adapter turns frames upright.) |
 | **Registration Client merge** | Apply the controller changes in [REGCLIENT_INTEGRATION.md](REGCLIENT_INTEGRATION.md) to `mosip/registration-client`. |
 | **Field validation** | A passing session on real L0/L1 SBI hardware; `interop` reports per supported device; native-speaker review of the translations. |
-| **Later** | Signed liveness evidence in the registration packet; spoken prompts and accessibility profiles; age-aware policy for young children. |
+| **Later** | Server-side evidence check in the registration processor (packet validator stage); spoken prompts and accessibility profiles; age-aware policy for young children. |

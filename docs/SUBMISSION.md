@@ -39,6 +39,7 @@ All of it runs on the station, so it behaves identically online and offline.
 | Errors and retries | All 13 error cases in the brief. Device faults never use up the person's attempts; repeated failures lock out per user. |
 | UI/UX | Live mirrored preview with the enforced capture oval, one plain instruction at a time, countdown, guidance tips. Attacks only ever get a generic message. Nine languages, including right-to-left Arabic. |
 | Online/offline | Same checks offline; signed model updates sync in the background when online. |
+| Packet integrity | Every resident capture gets **signed liveness evidence** (a JWS signed with the station's TPM key) bound to the exact face bytes and registration ID. The server can tell a liveness-verified face from one that never went through liveness, and refuses forged, swapped or copied evidence. |
 | ISO/IEC 30107 | Evaluation tool reporting APCER per attack type, BPCER and DET curves, plus a dataset recorder. |
 
 ## Security and privacy
@@ -48,12 +49,14 @@ All of it runs on the station, so it behaves identically online and offline.
 - **Explicit camera consent** before the camera turns on; refusal is audited and the camera stays off.
 - **Signed model packages**: every model file is hash-checked against a signed manifest before use, with rollback protection.
 - **Fail closed**: an engine or device fault never produces a pass.
+- **Verifiable end to end**: the liveness decision travels in the packet as signed evidence, so a tampered client
+  cannot skip liveness without the server noticing.
 
 ## Results
 
 | Measure | Value |
 |---|---|
-| Automated tests | 262, across all modules |
+| Automated tests | 273, across all modules |
 | Engine time per frame (CPU, laptop, ~500x350 frames, all models) | about 50–55 ms |
 | MOSIP mock SBI | discovered and streamed at about 22 fps; all conformance checks pass |
 | Eye openness (Iris model) on public test photos | closed 0.03–0.13, open 0.25–0.36 |

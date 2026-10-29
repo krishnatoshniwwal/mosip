@@ -18,13 +18,18 @@ import io.mosip.registration.liveness.device.FaceCaptureDevice;
 import io.mosip.registration.liveness.device.FaceFrame;
 import io.mosip.registration.liveness.device.FrameListener;
 import io.mosip.registration.liveness.engine.LivenessEngine;
+import io.mosip.registration.liveness.evidence.EvidenceSigner;
+import io.mosip.registration.liveness.evidence.EvidenceVerification;
+import io.mosip.registration.liveness.evidence.LivenessEvidenceJws;
 import io.mosip.registration.liveness.gate.CaptureStep;
 import io.mosip.registration.liveness.gate.GateResult;
+import io.mosip.registration.liveness.gate.GateStatus;
 import io.mosip.registration.liveness.i18n.LivenessMessages;
 import io.mosip.registration.liveness.mock.MockFaceDevice;
 import io.mosip.registration.liveness.mock.SimulatedLivenessEngine;
 import io.mosip.registration.liveness.mock.SimulatedSubject;
 import io.mosip.registration.liveness.mock.SimulatedSubject.Presentation;
+import io.mosip.registration.liveness.model.ModelSigning;
 import io.mosip.registration.liveness.onnx.OnnxLivenessEngine;
 import io.mosip.registration.liveness.regclient.RegClientAuditSink;
 import io.mosip.registration.liveness.regclient.RegClientLiveness;
@@ -65,9 +70,12 @@ import javafx.util.StringConverter;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.KeyPair;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Properties;
@@ -88,6 +96,7 @@ public final class RegClientDemoApp extends Application {
     private static final long SIMULATED_RCAPTURE_MS = 900;
     private static final long SIMULATED_MATCH_MS = 600;
     private static final long SWAP_LINGERS_MS = 3000;
+    private static final String STATION_ID = "10011";
 
     private final boolean simulated = Boolean.getBoolean("mosip.liveness.sim");
     private final TextArea diagnosticsLog = new TextArea();
@@ -101,6 +110,8 @@ public final class RegClientDemoApp extends Application {
     private ComboBox<Presentation> presentation;
     private ComboBox<CaptureBehaviour> duringCapture;
     private Stage stage;
+    /** Stands in for the station's TPM machine key; the server holds the public half. */
+    private KeyPair stationKey;
 
     /** What the simulated person does while the client's rCapture runs, to show what capture binding catches. */
     private enum CaptureBehaviour {
@@ -175,6 +186,8 @@ public final class RegClientDemoApp extends Application {
         device = new TapDevice(raw);
         liveness = new RegClientLiveness(config, engine, trail, null);
         liveness.setConnectivity(networkOnline::get);
+        stationKey = ModelSigning.generateKeyPair();
+        liveness.setEvidenceSigner(EvidenceSigner.withKey(stationKey.getPrivate(), stationKey.getPublic()), STATION_ID);
         if (!simulated) {
             SystemCameraSourceCheck sourceCheck = new SystemCameraSourceCheck();
             sourceCheck.prefetch();
@@ -272,7 +285,32 @@ public final class RegClientDemoApp extends Application {
                     diagnosticsLog.appendText("RESULT " + r + "\n");
                     status.setTextFill(r.isAccepted() ? Color.web("#1E8E4E") : Color.web("#C0392B"));
                     status.setText(r.isAccepted() ? success.describe(r) : notAccepted(r));
+                    if (workflow == LivenessWorkflow.RESIDENT_REGISTRATION && r.getStatus() != GateStatus.CANCELLED) {
+                        packetEvidence(r, subjectKey);
+                    }
                 }));
+    }
+
+    /**
+     * What goes into the registration packet next to the face, and what the server does with it on receipt:
+     * verify the station's signature and that the evidence names exactly this face.
+     */
+    private void packetEvidence(GateResult<?> r, String rid) {
+        try {
+            byte[] face = r.getCapture() instanceof FaceFrame ? ((FaceFrame) r.getCapture()).getData() : null;
+            String jws = liveness.issueEvidence(r, face, rid);
+            diagnosticsLog.appendText("PACKET liveness evidence (JWS, " + jws.length() + " chars): "
+                    + jws.substring(0, Math.min(48, jws.length())) + "…\n");
+            EvidenceVerification server = LivenessEvidenceJws.verify(jws, stationKey.getPublic(), face, rid, Instant.now());
+            diagnosticsLog.appendText("SERVER check of the packet: " + server + "\n");
+            if (server.isAccepted()) {
+                EvidenceVerification swapped = LivenessEvidenceJws.verify(jws, stationKey.getPublic(),
+                        "another face".getBytes(StandardCharsets.UTF_8), rid, Instant.now());
+                diagnosticsLog.appendText("SERVER check if the face were swapped in the packet: " + swapped + "\n");
+            }
+        } catch (Exception e) {
+            diagnosticsLog.appendText("Evidence could not be issued: " + e + "\n");
+        }
     }
 
     /** What the client would do next. This text is the client's, not shown to the person in the dialog. */

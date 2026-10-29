@@ -31,6 +31,7 @@ in behind interfaces, so no vendor is hard-wired.
 | Cross-session rate limiting with lockout persisted across restarts | |
 | Localised prompts: English, French, Arabic (RTL), Hindi, Kannada, Tamil, Filipino, Amharic, Sinhala | |
 | Signed model packages: ECDSA manifest, rollback protection, atomic install, tamper check at start | |
+| Signed liveness evidence for the registration packet: a JWS signed with the station key, bound to the exact face bytes and registration ID, with a server-side verifier that refuses forged, swapped or copied evidence | Verification stage in the registration processor |
 | Online model sync: fetches a newer signed package over HTTPS, refuses forged/replayed ones before downloading, keeps the installed one offline; runs in the background of the Registration Client while online | |
 | Online/offline badge on the capture screen (all 9 languages), toggle it in the `-RegClient` demo | |
 | GPU acceleration (OpenCL), opt-in: `auto` times each model on CPU and GPU, rejects a GPU whose output differs, keeps the fastest; shown in the interop report | Trying it on a discrete GPU |
@@ -47,7 +48,7 @@ in behind interfaces, so no vendor is hard-wired.
 | Audit events (no biometric data) and anonymous metrics | |
 | Reference capture UI (Swing) with diagnostic mode | |
 | Explicit camera consent before the device is opened (enforced by the service, audited, translated) | |
-| 262 automated tests | |
+| 273 automated tests | |
 
 The live engine (`liveness-onnx-engine`) detects faces with OpenCV's YuNet model and measures head turns
 from its five landmarks. Smile comes from the MediaPipe Face Mesh model, look up/down from how the mesh's 3D
@@ -66,7 +67,7 @@ Needs JDK 11+. No Maven required: the scripts download JUnit, OpenCV, ONNX Runti
 `-Dmosip.liveness.models=<dir>` at a folder containing `face_detection_yunet_2023mar.onnx`.
 
 ```powershell
-.\build.ps1          # compile + 262 tests
+.\build.ps1          # compile + 273 tests
 .\build.ps1 -Run     # launch LIVE webcam capture & real liveness
 .\build.ps1 -Run -Sim # launch simulated desktop demo (mock device)
 .\build.ps1 -Run -Device sbi:auto   # live capture from an SBI face device (MDS on 127.0.0.1:4501-4600)
@@ -104,6 +105,9 @@ translated prompts. The demo reads `config/liveness.properties`.
 ./build.sh tool models install models-v2/ /var/lib/mosip/liveness-models release-public.pem
 # When online: fetch a newer signed package published as static files (manifest.properties, manifest.sig, models)
 ./build.sh tool models sync https://updates.example.org/liveness-models/ /var/lib/mosip/liveness-models release-public.pem
+
+# Server side: check a packet's signed liveness evidence against the station key, the face and the RID
+./build.sh tool evidence verify evidence.jws station-public.pem --capture face.bin --subject 10001100010002420241029
 ```
 
 On Windows: `.\build.ps1 -Tool "interop --device webcam:0"`. The live demo runs only on a verified package
@@ -153,6 +157,7 @@ liveness-core/                       pure Java 11 library, zero dependencies (De
   mock/        MockFaceDevice, SimulatedSubject, SimulatedLivenessEngine
   i18n/        LivenessMessages + messages_<lang>.properties           (localised prompts, RTL)
   model/       ModelPackageVerifier, ModelRepository, ModelSigning, ModelSync (signed packages, online sync)
+  evidence/    LivenessEvidence, LivenessEvidenceJws, EvidenceSigner        (signed liveness evidence for the packet)
   evaluation/  PadMetrics, PadEvaluation                                (ISO/IEC 30107-3 metrics + report)
   conformance/ DeviceConformanceSuite, EngineBenchmark                  (interop + performance tests)
   gate/        LivenessGate, GateResult                                 (liveness before the client's own capture)

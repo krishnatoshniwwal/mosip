@@ -10,6 +10,7 @@ import java.util.Arrays;
  * evaluate &lt;dataset&gt; [options]   ISO/IEC 30107-3 PAD evaluation of the on-device engine
  * interop  [options]             device conformance + engine performance test
  * models   &lt;command&gt; ...         signed model packages: keygen, sign, verify, install, sync, status, rollback
+ * evidence verify ...           server-side check of a packet's signed liveness evidence
  * </pre>
  */
 public final class LivenessTools {
@@ -37,6 +38,9 @@ public final class LivenessTools {
             case "models":
                 status = ModelPackageTool.run(rest);
                 break;
+            case "evidence":
+                status = EvidenceTool.run(rest);
+                break;
             default:
                 usage();
                 status = 2;
@@ -45,7 +49,7 @@ public final class LivenessTools {
     }
 
     private static void usage() {
-        System.err.println("Usage: LivenessTools record|evaluate|interop|models ...\n"
+        System.err.println("Usage: LivenessTools record|evaluate|interop|models|evidence ...\n"
                 + "  record   <dataset> [--device webcam:0] [--seconds 5]\n"
                 + "  evaluate <dataset> [--out DIR] [--passive-threshold 70] [--max-video-frames 60] [--min-attack-frames 2]\n"
                 + "  interop  [--device webcam:0|sbi:auto|sbi:HOST:PORT[:SUBID]|mock] [--seconds 5] [--min-fps 10]\n"
@@ -54,7 +58,8 @@ public final class LivenessTools {
                 + "           sign <dir> <private.pem> --name N --version V --sequence S [--min-engine 1.2.0]\n"
                 + "           verify <dir> <public.pem> | install <dir> <repo> <public.pem>\n"
                 + "           sync <https://server/models/> <repo> <public.pem>\n"
-                + "           status <repo> <public.pem> | rollback <repo> <public.pem>");
+                + "           status <repo> <public.pem> | rollback <repo> <public.pem>\n"
+                + "  evidence verify <evidence.jws> <station-public.pem> [--capture face.bin] [--subject RID]");
     }
 
     /** Value of {@code --name value}, or {@code fallback}. */

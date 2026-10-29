@@ -7,9 +7,13 @@ import io.mosip.registration.liveness.challenge.ChallengeSelector;
 import io.mosip.registration.liveness.config.LivenessConfig;
 import io.mosip.registration.liveness.device.FaceCaptureDevice;
 import io.mosip.registration.liveness.engine.LivenessEngine;
+import io.mosip.registration.liveness.evidence.EvidenceSigner;
+import io.mosip.registration.liveness.evidence.LivenessEvidence;
+import io.mosip.registration.liveness.evidence.LivenessEvidenceJws;
 import io.mosip.registration.liveness.gate.CaptureStep;
 import io.mosip.registration.liveness.gate.GateHandle;
 import io.mosip.registration.liveness.gate.GateListener;
+import io.mosip.registration.liveness.gate.GateResult;
 import io.mosip.registration.liveness.gate.LivenessGate;
 import io.mosip.registration.liveness.injection.CameraSourceCheck;
 import io.mosip.registration.liveness.model.ModelSync;
@@ -18,6 +22,8 @@ import io.mosip.registration.liveness.session.AttemptRateLimiter;
 import io.mosip.registration.liveness.session.CameraConsent;
 
 import java.nio.file.Path;
+import java.security.GeneralSecurityException;
+import java.time.Instant;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -38,6 +44,8 @@ public final class RegClientLiveness implements AutoCloseable {
     private volatile ModelSync modelSync;
     private volatile ModelSync.Result lastModelSync;
     private ScheduledExecutorService syncScheduler;
+    private volatile EvidenceSigner evidenceSigner;
+    private volatile String stationId;
 
     /**
      * @param rateLimitStore file that keeps failed-attempt counts and lockouts across client restarts (e.g. under
@@ -75,6 +83,36 @@ public final class RegClientLiveness implements AutoCloseable {
     /** Whether the workflow's policy has liveness switched on ({@code mosip.registration.liveness[.<workflow>].enabled}). */
     public boolean isEnabled(LivenessWorkflow workflow) {
         return config.policyFor(workflow).isEnabled();
+    }
+
+    /**
+     * Signs liveness evidence with the station's key, e.g. the TPM machine key through {@code ClientCryptoFacade}.
+     * Without a signer, {@link #issueEvidence} returns null and packets carry no evidence.
+     *
+     * @param stationId the machine ID registered on the server, which identifies the public key to check with
+     */
+    public void setEvidenceSigner(EvidenceSigner signer, String stationId) {
+        this.evidenceSigner = signer;
+        this.stationId = stationId;
+    }
+
+    /**
+     * Signed evidence of what liveness verified for this capture (a compact JWS), for the registration packet
+     * next to the face it names. Issue it for failed runs too: a resident sent to supervisor review then carries
+     * a signed record that liveness did not pass.
+     *
+     * @param capturedBiometric the face bytes the packet stores (the rCapture {@code bioValue}), or null
+     * @return the JWS, or null if no signer is set
+     */
+    public String issueEvidence(GateResult<?> result, byte[] capturedBiometric, String subjectKey)
+            throws GeneralSecurityException {
+        EvidenceSigner signer = evidenceSigner;
+        if (signer == null) {
+            return null;
+        }
+        LivenessEvidence evidence = LivenessEvidence.of(result, capturedBiometric, subjectKey, stationId,
+                engine.info().getModelVersion(), Instant.now());
+        return LivenessEvidenceJws.sign(evidence, signer);
     }
 
     /**
