@@ -1,6 +1,6 @@
 # Face Liveness and Presentation Attack Detection for the MOSIP Registration Client
 
-**MOSIP Decode · Problem statement 04** · Team: _[names]_ · Code: https://github.com/krishnatoshniwwal/mosip
+**MOSIP Decode · Problem statement 04** · Team: Chiraag K V, Krishna Toshniwal, Samarth Patidar, Venkatachala Darshan Gurumurthy · Code: https://github.com/krishnatoshniwwal/mosip
 
 ## The problem
 
