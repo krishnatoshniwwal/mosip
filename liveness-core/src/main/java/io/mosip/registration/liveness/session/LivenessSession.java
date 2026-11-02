@@ -107,7 +107,7 @@ public final class LivenessSession {
     private long phaseStart;
     private int framesThisAttempt;
     private PassiveEvaluator passive = new PassiveEvaluator();
-    private int padAttackFrames;
+    private PadAttackWindow padWindow;
     private int noFaceFrames;
     private int multiFaceFrames;
     private int poorQualityFrames;
@@ -303,19 +303,6 @@ public final class LivenessSession {
 
     /** @return true if the attempt ended while processing this face */
     private boolean processFace(FaceObservation face, FrameAnalysis analysis, FaceFrame frame, boolean strict, long now) {
-        if (policy.isEnabled() && policy.isPadEnabled() && analysis.getPad().isAttackDetected()) {
-            padAttackFrames++;
-            if (padAttackFrames >= policy.getPadMinAttackFrames()) {
-                AttackType type = analysis.getPad().getAttackType();
-                metrics.padDetected();
-                audit(AuditEventType.PAD_ATTACK_DETECTED, now, "attackType", type.name(),
-                        "indicators", analysis.getPad().getIndicators().toString(),
-                        "attackFrames", String.valueOf(padAttackFrames),
-                        "bonaFideScore", fmt(analysis.getPad().getBonaFideScore()), "phase", state.name());
-                failAttempt(FailureReason.PAD_ATTACK_DETECTED, "attackType=" + type, now);
-                return true;
-            }
-        }
         if (lastFace != null && lastFace.distanceTo(face) > MAX_FACE_JUMP) {
             if (strict) {
                 failAttempt(FailureReason.CHALLENGE_FAILED, "face continuity lost", now);
@@ -332,6 +319,20 @@ public final class LivenessSession {
             lastFaceOutOfArea = true;
             guidance = guidanceFor(position);
             return false;
+        }
+        // PAD judges only a face inside the oval. The models need a well-framed face: one at the frame edge, cut
+        // off or lit from the side gives unreliable verdicts, and a face outside the oval never counts anyway.
+        if (policy.isEnabled() && policy.isPadEnabled()) {
+            if (padWindow.add(analysis.getPad().isAttackDetected())) {
+                AttackType type = analysis.getPad().getAttackType();
+                metrics.padDetected();
+                audit(AuditEventType.PAD_ATTACK_DETECTED, now, "attackType", type.name(),
+                        "indicators", analysis.getPad().getIndicators().toString(),
+                        "attackFrames", String.valueOf(padWindow.flagged()),
+                        "bonaFideScore", fmt(analysis.getPad().getBonaFideScore()), "phase", state.name());
+                failAttempt(FailureReason.PAD_ATTACK_DETECTED, "attackType=" + type, now);
+                return true;
+            }
         }
         lastFaceOutOfArea = false;
         lastFaceSeenAt = now;
@@ -682,7 +683,7 @@ public final class LivenessSession {
         phaseStart = now;
         framesThisAttempt = 0;
         passive = new PassiveEvaluator();
-        padAttackFrames = 0;
+        padWindow = new PadAttackWindow(policy.getPadAttackWindow(), policy.getPadMinAttackFrames());
         integrity.reset();
         noFaceFrames = 0;
         multiFaceFrames = 0;

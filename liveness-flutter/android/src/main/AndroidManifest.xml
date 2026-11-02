@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Signed model updates while online; liveness itself never needs the network. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Not required: a station may use an SBI face device instead of the tablet's camera. -->
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 

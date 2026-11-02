@@ -43,13 +43,13 @@ in behind interfaces, so no vendor is hard-wired.
 | Desktop Registration Client integration (`liveness-regclient`): JavaFX capture dialog for resident capture, operator login and supervisor auth; MDS stream adapter; config from synced global params; audit into `AuditManagerService` | |
 | Capture binding: liveness gates the MDS rCapture / face match and watches the stream until it returns | |
 | Per-workflow configuration with strict validation | |
-| Android: the desktop engine on OpenCV/ONNX Runtime for Android, CameraX, signed models from the APK, the Flutter capture screen (`liveness-flutter`) and an AAR build (`liveness-android`) | Running it on a phone or emulator (built, lint-checked and tested without one) |
+| Android: the desktop engine on OpenCV/ONNX Runtime for Android, CameraX, signed models from the APK with background sync while online, on-device metrics, the Flutter capture screen (`liveness-flutter`) and an AAR build (`liveness-android`); run on a vivo V2253 (Android 15) | More devices, including low-end ones; vendor face devices on Android |
 | SBI device discovery + `STREAM /stream` adapter, tested against the MOSIP mock SBI | A passing session on real L0/L1 hardware |
 | Mock L0/L1 device + simulated subject and engine (live, photo, screen, replay, …) | |
 | Audit events (no biometric data) and anonymous metrics | |
 | Reference capture UI (Swing) with diagnostic mode | |
 | Explicit camera consent before the device is opened (enforced by the service, audited, translated) | |
-| 280 Java tests + 14 Flutter tests | |
+| 292 Java tests + 16 Flutter tests | |
 
 The live engine (`liveness-onnx-engine`) detects faces with OpenCV's YuNet model and measures head turns
 from its five landmarks. Smile comes from the MediaPipe Face Mesh model, look up/down from how the mesh's 3D

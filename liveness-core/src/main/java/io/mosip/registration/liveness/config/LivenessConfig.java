@@ -40,6 +40,7 @@ public final class LivenessConfig {
         KEYS.put("face.minQuality", (b, v) -> b.minFaceQuality(parseInt(v)));
         KEYS.put("pad.enabled", (b, v) -> b.padEnabled(parseBoolean(v)));
         KEYS.put("pad.minAttackFrames", (b, v) -> b.padMinAttackFrames(parseInt(v)));
+        KEYS.put("pad.attackWindow", (b, v) -> b.padAttackWindow(parseInt(v)));
         KEYS.put("active.enabled", (b, v) -> b.activeEnabled(parseBoolean(v)));
         KEYS.put("active.always", (b, v) -> b.activeAlways(parseBoolean(v)));
         KEYS.put("active.challenges", (b, v) -> b.challengeTypes(parseChallenges(v)));

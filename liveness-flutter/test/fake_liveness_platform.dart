@@ -87,8 +87,16 @@ class FakeLivenessPlatform implements LivenessPlatform {
     Map<String, String>? config,
     List<String>? trustedKeys,
     String lensFacing = 'FRONT',
+    String? modelUpdateUrl,
+    int? modelSyncIntervalMinutes,
   }) async =>
       const {};
+
+  @override
+  Future<Map<String, Object?>?> metrics() async => null;
+
+  @override
+  Future<Map<String, Object?>> syncModels() async => const {'status': 'UP_TO_DATE'};
 
   @override
   Widget buildPreview(BuildContext context) => const SizedBox(key: Key('camera-preview'));

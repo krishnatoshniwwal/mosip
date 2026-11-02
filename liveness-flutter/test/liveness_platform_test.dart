@@ -23,6 +23,8 @@ void main() {
         'labels' => {'retry': 'Réessayer', 'rtl': false, 'language': 'fr', 'lockedUntil': "Bloqué jusqu''à {0}"},
         'requestCameraPermission' => true,
         'initialize' => {'mode': 'simulated', 'engine': 'sim'},
+        'metrics' => {'avgFrameProcessingMs': 41.5, 'framesProcessed': 120, 'failureRate': 0.0},
+        'syncModels' => {'status': 'UP_TO_DATE', 'detail': 'installed sequence 3', 'offered': 'models 1.3.0 (seq 3)'},
         _ => null,
       };
     });
@@ -61,6 +63,36 @@ void main() {
       'trustedKeys': null,
       'lensFacing': 'FRONT',
     });
+  });
+
+  test('a model update server is passed only when set', () async {
+    await platform.initialize(
+        trustedKeys: ['-----BEGIN PUBLIC KEY-----'],
+        modelUpdateUrl: 'https://updates.example.org/liveness/',
+        modelSyncIntervalMinutes: 60);
+
+    expect(calls.single.arguments, {
+      'mode': 'camera',
+      'config': null,
+      'trustedKeys': ['-----BEGIN PUBLIC KEY-----'],
+      'lensFacing': 'FRONT',
+      'modelUpdateUrl': 'https://updates.example.org/liveness/',
+      'modelSyncIntervalMinutes': 60,
+    });
+  });
+
+  test('metrics and model sync', () async {
+    final metrics = await platform.metrics();
+    final sync = await platform.syncModels();
+
+    expect(metrics!['avgFrameProcessingMs'], 41.5);
+    expect(sync['status'], 'UP_TO_DATE');
+    expect(calls.map((c) => c.method), ['metrics', 'syncModels']);
+
+    final event = LivenessEvent.fromMap({'eventType': 'modelSync', 'status': 'UPDATED', 'offered': 'models 1.4.0 (seq 4)'})
+        as ModelSyncEvent;
+    expect(event.status, 'UPDATED');
+    expect(event.offered, 'models 1.4.0 (seq 4)');
   });
 
   test('labels are parsed', () async {

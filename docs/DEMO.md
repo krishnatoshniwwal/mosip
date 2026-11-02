@@ -4,7 +4,8 @@
 
 Run `.\build.ps1` once beforehand so models and libraries are downloaded and the tests are green. Keep a
 printed photo of a team member, a phone with that person's photo and a short video of them, and OBS Studio
-installed (Virtual Camera off).
+installed (Virtual Camera off). Have the example app on an Android phone (see `liveness-flutter/README.md`),
+charged, with the camera permission already granted.
 
 | # | Show | Command / action | What the judges see |
 |---|---|---|---|
@@ -16,6 +17,7 @@ installed (Virtual Camera off).
 | 6 | Real client flow | `.\build.ps1 -Run -RegClient` | Operator login → resident capture → supervisor auth, each with its own policy |
 | 7 | Inclusion | Switch language to Arabic, then Hindi | RTL layout, translated prompts |
 | 8 | Offline | Toggle the online/offline badge | Same checks offline; signed model sync when online |
+| 9 | Same on Android | On the phone: Camera mode, **Login with face**, then hold up the printed photo | The same prompts, oval and messages as desktop, the same engine and models on the phone; the photo is rejected. Open *Diagnostics* for the on-device time per frame |
 
 If the venue camera or lighting misbehaves, switch to `.\build.ps1 -Run -Sim` and drive the same attacks
 from the *Device simulator* bar. Record the full demo as a video in advance as a backup.

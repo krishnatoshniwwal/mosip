@@ -159,7 +159,8 @@ public class FlutterLivenessBridge {
                 if (sink != null) {
                     sink.success(serializeResult(r, messages, frameEncoder));
                 }
-                activeHandle.set(null);
+                // Only this session's own handle: a session replaced by a new start ends after the new one is active.
+                activeHandle.updateAndGet(h -> h != null && h.getSessionId().equals(r.getSessionId()) ? null : h);
             }
         };
 
@@ -170,6 +171,10 @@ public class FlutterLivenessBridge {
         }
         LivenessHandle handle = service.start(workflow, subjectKey, consent, device, listener);
         activeHandle.set(handle);
+        if (handle.result().isDone()) {
+            // Ended at start (no consent, locked out) before it was recorded as active.
+            activeHandle.compareAndSet(handle, null);
+        }
 
         Map<String, Object> response = new HashMap<>();
         response.put("sessionId", handle.getSessionId());

@@ -51,7 +51,7 @@ public final class LivenessTools {
     private static void usage() {
         System.err.println("Usage: LivenessTools record|evaluate|interop|models|evidence ...\n"
                 + "  record   <dataset> [--device webcam:0] [--seconds 5]\n"
-                + "  evaluate <dataset> [--out DIR] [--passive-threshold 70] [--max-video-frames 60] [--min-attack-frames 2]\n"
+                + "  evaluate <dataset> [--out DIR] [--passive-threshold 70] [--max-video-frames 60] [--min-attack-frames 5] [--attack-window 20]\n"
                 + "  interop  [--device webcam:0|sbi:auto|sbi:HOST:PORT[:SUBID]|mock] [--seconds 5] [--min-fps 10]\n"
                 + "           [--disconnect manual|auto] [--benchmark 200] [--out report.md] [--yes]\n"
                 + "  models   keygen <private.pem> <public.pem>\n"

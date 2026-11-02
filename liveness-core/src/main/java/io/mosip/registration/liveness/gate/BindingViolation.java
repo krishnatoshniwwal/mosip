@@ -2,7 +2,7 @@ package io.mosip.registration.liveness.gate;
 
 /** Why the capture could not be tied to the person whose liveness was verified. Audit only; never shown. */
 public enum BindingViolation {
-    /** The engine flagged {@code pad.minAttackFrames} frames as an attack during the capture. */
+    /** The engine flagged {@code pad.minAttackFrames} of the last {@code pad.attackWindow} frames during the capture. */
     ATTACK_DETECTED,
     MULTIPLE_FACES,
     /** No face in view for longer than the session allows. */

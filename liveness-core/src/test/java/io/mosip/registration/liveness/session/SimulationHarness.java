@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 
 /** Drives a {@link LivenessSession} frame by frame on a virtual clock: deterministic and instant. */
 final class SimulationHarness implements LivenessListener {
@@ -39,6 +40,8 @@ final class SimulationHarness implements LivenessListener {
     LivenessResult result;
     boolean autoRetry = true;
     Consumer<LivenessUpdate> onUpdate = u -> { };
+    /** Changes what the engine reports for each frame, e.g. a wrong PAD verdict. */
+    UnaryOperator<FrameAnalysis> engineOverride = a -> a;
 
     SimulationHarness(long seed) {
         subject = new SimulatedSubject(clock::get, new Random(seed));
@@ -91,7 +94,7 @@ final class SimulationHarness implements LivenessListener {
             } catch (LivenessEngineException e) {
                 throw new AssertionError(e);
             }
-            session.onAnalysis(analysis, frame, clock.get());
+            session.onAnalysis(engineOverride.apply(analysis), frame, clock.get());
             session.onTick(clock.get());
         }
         return result;

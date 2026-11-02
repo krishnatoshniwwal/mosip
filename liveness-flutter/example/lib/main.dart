@@ -68,6 +68,7 @@ class _HomePageState extends State<HomePage> {
   final _supervisor = TextEditingController(text: '110012');
   final String _rid = '10001100010002${DateTime.now().millisecondsSinceEpoch % 1000000}'.padRight(20, '0');
   LivenessResult? _residentResult;
+  Map<String, Object?>? _metrics;
   final Map<LivenessWorkflow, String> _status = {};
 
   @override
@@ -117,10 +118,12 @@ class _HomePageState extends State<HomePage> {
         subjectKey: subjectKey,
         language: _language,
         online: _online);
+    final metrics = await _liveness.metrics();
     if (!mounted) {
       return;
     }
     setState(() {
+      _metrics = metrics;
       if (workflow == LivenessWorkflow.residentRegistration) {
         _residentResult = result;
       }
@@ -207,6 +210,11 @@ class _HomePageState extends State<HomePage> {
             title: const Text('Diagnostics (audit trail, no biometric data)'),
             subtitle: _engine == null ? null : Text(_engine!, maxLines: 2, overflow: TextOverflow.ellipsis),
             children: [
+              if (_metrics != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Text(_performance(_metrics!), style: const TextStyle(fontWeight: FontWeight.bold)),
+                ),
               for (final line in _audit.take(60))
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
@@ -217,6 +225,15 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
     );
+  }
+
+  /// Liveness speed and outcomes on this phone, from the plugin's metrics.
+  static String _performance(Map<String, Object?> m) {
+    String fmt(String key, [int digits = 0]) => ((m[key] as num?) ?? 0).toStringAsFixed(digits);
+    return 'This device: ${fmt('avgFrameProcessingMs', 1)} ms per analysed frame '
+        '(${fmt('framesProcessed')} frames), challenges completed in ${fmt('avgChallengeCompletionMs')} ms on '
+        'average. Sessions ${fmt('sessions')}: passed ${fmt('passed')}, failed ${fmt('failed')}, attacks '
+        'stopped ${fmt('padDetections')}.';
   }
 
   Widget _setup() => Card(

@@ -23,6 +23,8 @@ import io.mosip.registration.liveness.android.bridge.Nv21JpegEncoder;
 import io.mosip.registration.liveness.android.camera.CameraXBinder;
 import io.mosip.registration.liveness.android.camera.CameraXFaceCaptureDevice;
 import io.mosip.registration.liveness.android.engine.AndroidLivenessEngines;
+import io.mosip.registration.liveness.android.engine.AndroidModelStore;
+import io.mosip.registration.liveness.android.engine.AndroidModelUpdater;
 import io.mosip.registration.liveness.audit.AuditEvent;
 import io.mosip.registration.liveness.audit.AuditEventType;
 import io.mosip.registration.liveness.audit.AuditSink;
@@ -38,9 +40,11 @@ import io.mosip.registration.liveness.mock.MockFaceDevice;
 import io.mosip.registration.liveness.mock.SimulatedLivenessEngine;
 import io.mosip.registration.liveness.mock.SimulatedSubject;
 import io.mosip.registration.liveness.model.ModelSigning;
+import io.mosip.registration.liveness.model.ModelSync;
 import io.mosip.registration.liveness.service.FaceLivenessService;
 import io.mosip.registration.liveness.session.AttemptRateLimiter;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -64,9 +68,9 @@ import java.util.logging.Logger;
  * <ul>
  *   <li><b>{@value #CHANNEL}</b> (methods): {@code initialize}, {@code labels}, {@code hasCameraPermission},
  *       {@code requestCameraPermission}, {@code start}, {@code retry}, {@code cancel}, {@code getStatus},
- *       {@code simulate}, {@code dispose}</li>
- *   <li><b>{@value #EVENTS}</b>: session updates, the final result, audit events (no biometric data) and camera
- *       errors, each a map with an {@code eventType}</li>
+ *       {@code metrics}, {@code syncModels}, {@code simulate}, {@code dispose}</li>
+ *   <li><b>{@value #EVENTS}</b>: session updates, the final result, audit events (no biometric data), model sync
+ *       results and camera errors, each a map with an {@code eventType}</li>
  *   <li><b>{@value #PREVIEW_VIEW}</b>: platform view with the live camera preview</li>
  * </ul>
  */
@@ -79,6 +83,7 @@ public class MosipFaceLivenessPlugin implements FlutterPlugin, MethodChannel.Met
 
     private static final Logger LOG = Logger.getLogger(MosipFaceLivenessPlugin.class.getName());
     private static final int CAMERA_PERMISSION_REQUEST = 0x4D46;
+    private static final long DEFAULT_SYNC_INTERVAL_MINUTES = 360;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService loader = Executors.newSingleThreadExecutor(r -> {
@@ -96,6 +101,8 @@ public class MosipFaceLivenessPlugin implements FlutterPlugin, MethodChannel.Met
 
     // Main-thread state, set by initialize.
     private LivenessEngine engine;
+    private FaceLivenessService service;
+    private AndroidModelUpdater updater;
     private FlutterLivenessBridge bridge;
     private CameraXFaceCaptureDevice camera;
     private SimulatedSubject subject;
@@ -170,6 +177,12 @@ public class MosipFaceLivenessPlugin implements FlutterPlugin, MethodChannel.Met
                 }
                 bridge.onMethodCall("cancel", Collections.emptyMap(), adapt(result));
                 break;
+            case "metrics":
+                result.success(service == null ? null : metrics(service.metrics().snapshot()));
+                break;
+            case "syncModels":
+                syncModels(result);
+                break;
             case "simulate":
                 simulate(call, result);
                 break;
@@ -186,7 +199,8 @@ public class MosipFaceLivenessPlugin implements FlutterPlugin, MethodChannel.Met
      * Arguments: {@code mode} ("camera" or "simulated"), {@code config} (the client's
      * {@code mosip.registration.liveness.*} settings as strings; defaults when absent), {@code trustedKeys} (PEM
      * public keys: run only on a signed model package), {@code lensFacing} ("FRONT" or "BACK"),
-     * {@code maxAnalysisFps}.
+     * {@code maxAnalysisFps}, {@code modelUpdateUrl} (an https update server publishing signed packages; needs
+     * {@code trustedKeys}) and {@code modelSyncIntervalMinutes} (default 360).
      */
     private void initialize(MethodCall call, MethodChannel.Result result) {
         if (bridge != null) {
@@ -198,6 +212,13 @@ public class MosipFaceLivenessPlugin implements FlutterPlugin, MethodChannel.Met
         List<String> trustedKeys = call.argument("trustedKeys");
         String lens = call.argument("lensFacing");
         Integer fps = call.argument("maxAnalysisFps");
+        String updateUrl = call.argument("modelUpdateUrl");
+        Integer syncMinutes = call.argument("modelSyncIntervalMinutes");
+        if (updateUrl != null && (simulated || trustedKeys == null || trustedKeys.isEmpty())) {
+            result.error("INVALID_ARGUMENTS", "modelUpdateUrl needs trustedKeys and the camera mode: updates are "
+                    + "accepted only as packages signed with a trusted key", null);
+            return;
+        }
         loader.execute(() -> {
             try {
                 LivenessConfig config = settings == null ? LivenessConfig.defaults() : toConfig(settings);
@@ -223,10 +244,16 @@ public class MosipFaceLivenessPlugin implements FlutterPlugin, MethodChannel.Met
                 SimulatedSubject finalSubject = simSubject;
                 // Lockouts survive app restarts, as on desktop; the file holds hashed keys only.
                 Path attempts = context.getNoBackupFilesDir().toPath().resolve("liveness-attempts.dat");
-                FaceLivenessService service = new FaceLivenessService(config, built, event -> audit(event, finalSubject),
-                        new LivenessMetrics(), new ChallengeSelector(), System::currentTimeMillis,
-                        new AttemptRateLimiter(attempts));
-                FlutterLivenessBridge newBridge = new FlutterLivenessBridge(service, device, config);
+                FaceLivenessService newService = new FaceLivenessService(config, built,
+                        event -> audit(event, finalSubject), new LivenessMetrics(), new ChallengeSelector(),
+                        System::currentTimeMillis, new AttemptRateLimiter(attempts));
+                FlutterLivenessBridge newBridge = new FlutterLivenessBridge(newService, device, config);
+                AndroidModelUpdater newUpdater = null;
+                if (updateUrl != null) {
+                    ModelSync sync = AndroidModelStore.modelSync(context, URI.create(updateUrl), readKeys(trustedKeys));
+                    newUpdater = new AndroidModelUpdater(context, sync, this::modelSyncEvent);
+                    newUpdater.start(syncMinutes == null ? DEFAULT_SYNC_INTERVAL_MINUTES : syncMinutes);
+                }
                 newBridge.setFrameEncoder(new Nv21JpegEncoder());
                 newBridge.setEventSink(new MainThreadSink());
                 Map<String, Object> info = new HashMap<>();
@@ -237,9 +264,13 @@ public class MosipFaceLivenessPlugin implements FlutterPlugin, MethodChannel.Met
                     challenges.add(c.name());
                 }
                 info.put("challenges", challenges);
+                info.put("modelSync", newUpdater != null);
                 CameraXFaceCaptureDevice finalCam = cam;
+                AndroidModelUpdater finalUpdater = newUpdater;
                 main.post(() -> {
                     engine = built;
+                    service = newService;
+                    updater = finalUpdater;
                     bridge = newBridge;
                     camera = finalCam;
                     subject = finalSubject;
@@ -273,6 +304,64 @@ public class MosipFaceLivenessPlugin implements FlutterPlugin, MethodChannel.Met
             Files.deleteIfExists(tmp);
         }
         return keys;
+    }
+
+    /**
+     * Liveness performance on this device since initialize: average analysis time per frame, challenge completion
+     * time, retry and failure rates. Counts only, no biometric data.
+     */
+    private static Map<String, Object> metrics(LivenessMetrics.Snapshot m) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("sessions", m.sessions);
+        map.put("attempts", m.attempts);
+        map.put("passed", m.passed);
+        map.put("passedPassiveOnly", m.passedPassiveOnly);
+        map.put("failed", m.failed);
+        map.put("cancelled", m.cancelled);
+        map.put("padDetections", m.padDetections);
+        map.put("injectionDetections", m.injectionDetections);
+        map.put("challengesCompleted", m.challengesCompleted);
+        map.put("framesProcessed", m.framesProcessed);
+        map.put("framesDropped", m.framesDropped);
+        map.put("avgFrameProcessingMs", m.avgFrameProcessingMs);
+        map.put("avgChallengeCompletionMs", m.avgChallengeCompletionMs);
+        map.put("retryRate", m.retryRate());
+        map.put("failureRate", m.failureRate());
+        return map;
+    }
+
+    /** Checks the update server now (if online); the result also goes out as a {@code modelSync} event. */
+    private void syncModels(MethodChannel.Result result) {
+        AndroidModelUpdater current = updater;
+        if (current == null) {
+            result.error("NO_MODEL_SYNC", "Model sync was not configured (modelUpdateUrl)", null);
+            return;
+        }
+        loader.execute(() -> {
+            ModelSync.Result r = current.syncIfOnline();
+            main.post(() -> result.success(r == null
+                    ? Collections.singletonMap("status", "SKIPPED_OFFLINE") : syncMap(r)));
+        });
+    }
+
+    private void modelSyncEvent(ModelSync.Result r) {
+        Map<String, Object> map = syncMap(r);
+        map.put("eventType", "modelSync");
+        main.post(() -> {
+            if (sink != null) {
+                sink.success(map);
+            }
+        });
+    }
+
+    private static Map<String, Object> syncMap(ModelSync.Result r) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("status", r.getStatus().name());
+        map.put("detail", r.getDetail());
+        if (r.getOffered() != null) {
+            map.put("offered", r.getOffered().label());
+        }
+        return map;
     }
 
     /** Sends audit events to Flutter for a diagnostics view; in simulated mode the person follows each prompt. */
@@ -319,11 +408,16 @@ public class MosipFaceLivenessPlugin implements FlutterPlugin, MethodChannel.Met
             binder.close();
             binder = null;
         }
+        if (updater != null) {
+            updater.close();
+            updater = null;
+        }
         if (engine != null) {
             LivenessEngine closing = engine;
             loader.execute(closing::close);
         }
         engine = null;
+        service = null;
         bridge = null;
         camera = null;
         subject = null;

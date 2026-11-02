@@ -1,6 +1,10 @@
 package io.mosip.registration.liveness.session;
 
+import io.mosip.registration.liveness.audit.AuditEventType;
 import io.mosip.registration.liveness.config.LivenessPolicy;
+import io.mosip.registration.liveness.engine.AttackType;
+import io.mosip.registration.liveness.engine.FrameAnalysis;
+import io.mosip.registration.liveness.engine.PadResult;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -29,6 +33,57 @@ class CapturePositionTest {
         assertTrue(h.updatesIn(LivenessState.PASSIVE_CHECK).stream().allMatch(u -> u.getProgress() == 0.0),
                 "frames outside the oval must not advance the passive check");
         assertEquals(UserMessage.FAIL_POSITION, h.updatesIn(LivenessState.ATTEMPT_FAILED).get(0).getMessage());
+    }
+
+    @Test
+    void faceBesideTheOvalGetsPositioningGuidanceEvenWhenTheModelCallsItAnAttack() {
+        // Found on a phone: a live face at the frame edge, half lit, makes the anti-spoof model unreliable. A face
+        // outside the oval never counts, so it must not be judged an attack either; the person is told to move.
+        SimulationHarness h = new SimulationHarness(35);
+        h.subject.setPlacement(0.85f, 0.48f, 1f);
+        h.engineOverride = a -> new FrameAnalysis(a.getFaces(), a.getLivenessScore(),
+                PadResult.attack(AttackType.SCREEN_DISPLAY, 20f));
+        h.autoRetry = false;
+        h.newSession(DEFAULT, 35);
+        h.start();
+
+        assertNull(h.run(30_000));
+
+        assertTrue(h.audit.ofType(AuditEventType.PAD_ATTACK_DETECTED).isEmpty());
+        assertTrue(h.updates.stream().anyMatch(u -> u.getGuidance() == UserMessage.GUIDE_FACE_IN_AREA));
+        assertEquals(UserMessage.FAIL_POSITION, h.updatesIn(LivenessState.ATTEMPT_FAILED).get(0).getMessage());
+    }
+
+    @Test
+    void anAttackInsideTheOvalIsStillRejected() {
+        SimulationHarness h = new SimulationHarness(36);
+        h.engineOverride = a -> new FrameAnalysis(a.getFaces(), a.getLivenessScore(),
+                PadResult.attack(AttackType.SCREEN_DISPLAY, 20f));
+        h.autoRetry = false;
+        h.newSession(DEFAULT, 36);
+        h.start();
+
+        assertNull(h.run(30_000));
+
+        assertEquals(1, h.audit.ofType(AuditEventType.PAD_ATTACK_DETECTED).size());
+        assertEquals(UserMessage.FAIL_GENERIC, h.updatesIn(LivenessState.ATTEMPT_FAILED).get(0).getMessage());
+    }
+
+    @Test
+    void strayAttackFramesOnARealFaceDoNotRejectIt() {
+        // Calibrated on the team's recordings: real faces had up to 19% of their in-oval frames flagged (glare,
+        // a turn of the head), attacks every frame. One frame in eight stays below 5 of any 20.
+        SimulationHarness h = new SimulationHarness(37);
+        int[] frame = {0};
+        h.engineOverride = a -> ++frame[0] % 8 == 0
+                ? new FrameAnalysis(a.getFaces(), a.getLivenessScore(), PadResult.attack(AttackType.UNKNOWN, 40f))
+                : a;
+        h.newSession(DEFAULT, 37);
+
+        LivenessResult result = h.startAndRun();
+
+        assertTrue(h.audit.ofType(AuditEventType.PAD_ATTACK_DETECTED).isEmpty());
+        assertEquals(LivenessOutcome.PASSED, result.getOutcome(), result.getAttemptFailures().toString());
     }
 
     @Test

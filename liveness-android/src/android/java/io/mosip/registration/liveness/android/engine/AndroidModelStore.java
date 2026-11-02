@@ -9,10 +9,12 @@ import io.mosip.registration.liveness.model.ModelIntegrityException;
 import io.mosip.registration.liveness.model.ModelManifest;
 import io.mosip.registration.liveness.model.ModelPackageVerifier;
 import io.mosip.registration.liveness.model.ModelRepository;
+import io.mosip.registration.liveness.model.ModelSync;
 import io.mosip.registration.liveness.onnx.OnnxLivenessEngine;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -85,9 +87,7 @@ public final class AndroidModelStore {
      */
     public static ModelRepository.ActiveModel activateSigned(Context context, List<PublicKey> trustedKeys)
             throws IOException, ModelIntegrityException {
-        ModelRepository repository = new ModelRepository(
-                context.getNoBackupFilesDir().toPath().resolve("liveness-models"),
-                new ModelPackageVerifier(trustedKeys, OnnxLivenessEngine.ENGINE_VERSION));
+        ModelRepository repository = repository(context, trustedKeys);
         Path bundled = extractBundled(context);
         try {
             repository.install(bundled);
@@ -99,6 +99,27 @@ public final class AndroidModelStore {
             LOG.info("Bundled model package not installed (" + e.getMessage() + "); keeping the active package");
         }
         return repository.activate();
+    }
+
+    /** The installed signed packages (shared by {@link #activateSigned} and {@link #modelSync}). */
+    public static ModelRepository repository(Context context, List<PublicKey> trustedKeys) throws IOException {
+        return new ModelRepository(context.getNoBackupFilesDir().toPath().resolve("liveness-models"),
+                verifier(trustedKeys));
+    }
+
+    /**
+     * Fetches newer signed packages from {@code updateServer} into the same repository, with the desktop client's
+     * checks: signature and rollback sequence verified before any model is downloaded, every byte verified again
+     * before the atomic install. An installed update is used from the next engine start.
+     */
+    public static ModelSync modelSync(Context context, URI updateServer, List<PublicKey> trustedKeys)
+            throws IOException {
+        return new ModelSync(updateServer, repository(context, trustedKeys), verifier(trustedKeys),
+                context.getNoBackupFilesDir().toPath().resolve("liveness-model-downloads"));
+    }
+
+    private static ModelPackageVerifier verifier(List<PublicKey> trustedKeys) {
+        return new ModelPackageVerifier(trustedKeys, OnnxLivenessEngine.ENGINE_VERSION);
     }
 
     private static String appVersion(Context context) throws IOException {

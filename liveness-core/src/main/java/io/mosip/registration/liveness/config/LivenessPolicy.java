@@ -21,6 +21,7 @@ public final class LivenessPolicy {
     private final int minFaceQuality;
     private final boolean padEnabled;
     private final int padMinAttackFrames;
+    private final int padAttackWindow;
     private final boolean activeEnabled;
     private final boolean activeAlways;
     private final List<ChallengeType> challengeTypes;
@@ -57,6 +58,7 @@ public final class LivenessPolicy {
         minFaceQuality = b.minFaceQuality;
         padEnabled = b.padEnabled;
         padMinAttackFrames = b.padMinAttackFrames;
+        padAttackWindow = b.padAttackWindow;
         activeEnabled = b.activeEnabled;
         activeAlways = b.activeAlways;
         challengeTypes = Collections.unmodifiableList(new ArrayList<>(new LinkedHashSet<>(b.challengeTypes)));
@@ -100,6 +102,7 @@ public final class LivenessPolicy {
                 .minFaceQuality(minFaceQuality)
                 .padEnabled(padEnabled)
                 .padMinAttackFrames(padMinAttackFrames)
+                .padAttackWindow(padAttackWindow)
                 .activeEnabled(activeEnabled)
                 .activeAlways(activeAlways)
                 .challengeTypes(challengeTypes)
@@ -140,8 +143,10 @@ public final class LivenessPolicy {
     /** Minimum face quality (0..100) for a frame to count towards liveness or be captured. */
     public int getMinFaceQuality() { return minFaceQuality; }
     public boolean isPadEnabled() { return padEnabled; }
-    /** Frames flagged as an attack within one attempt before the attempt is rejected. */
+    /** Flagged frames, among the last {@link #getPadAttackWindow()} judged frames, that reject the attempt. */
     public int getPadMinAttackFrames() { return padMinAttackFrames; }
+    /** How many of the most recent judged frames the PAD verdict looks at. */
+    public int getPadAttackWindow() { return padAttackWindow; }
     /** Whether a low passive score escalates to an active challenge (otherwise it fails). */
     public boolean isActiveEnabled() { return activeEnabled; }
     /** Always run active challenges, even when passive liveness is confident. */
@@ -221,7 +226,8 @@ public final class LivenessPolicy {
         private long passiveTimeoutMs = 10_000;
         private int minFaceQuality = 40;
         private boolean padEnabled = true;
-        private int padMinAttackFrames = 2;
+        private int padMinAttackFrames = 5;
+        private int padAttackWindow = 20;
         private boolean activeEnabled = true;
         private boolean activeAlways = false;
         private List<ChallengeType> challengeTypes = Arrays.asList(
@@ -268,6 +274,7 @@ public final class LivenessPolicy {
         public Builder minFaceQuality(int v) { minFaceQuality = v; return this; }
         public Builder padEnabled(boolean v) { padEnabled = v; return this; }
         public Builder padMinAttackFrames(int v) { padMinAttackFrames = v; return this; }
+        public Builder padAttackWindow(int v) { padAttackWindow = v; return this; }
         public Builder activeEnabled(boolean v) { activeEnabled = v; return this; }
         public Builder activeAlways(boolean v) { activeAlways = v; return this; }
         public Builder challengeTypes(List<ChallengeType> v) { challengeTypes = new ArrayList<>(v); return this; }
@@ -322,6 +329,7 @@ public final class LivenessPolicy {
             require(passiveMinFrames >= 1, "passive.minFrames must be at least 1");
             require(passiveTimeoutMs > 0, "passive.timeoutMs must be positive");
             require(padMinAttackFrames >= 1, "pad.minAttackFrames must be at least 1");
+            require(padAttackWindow >= padMinAttackFrames, "pad.attackWindow must be at least pad.minAttackFrames");
             require(challengeTimeoutMs > 0, "active.challengeTimeoutMs must be positive");
             require(headYawDegrees > 0 && headYawDegrees <= 60, "active.headYawDegrees must be in (0, 60]");
             require(headPitchDegrees > 0 && headPitchDegrees <= 60, "active.headPitchDegrees must be in (0, 60]");

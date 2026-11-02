@@ -56,9 +56,10 @@ All of it runs on the station, so it behaves identically online and offline.
 
 | Measure | Value |
 |---|---|
-| Automated tests | 280 Java tests across all modules, plus 14 Flutter tests for the Android capture screen |
+| Automated tests | 292 Java tests across all modules, plus 16 Flutter tests for the Android capture screen and channel |
 | Engine time per frame (CPU, laptop, ~500x350 frames, all models) | about 50–55 ms |
 | MOSIP mock SBI | discovered and streamed at about 22 fps; all conformance checks pass |
+| Android | example app run on a vivo V2253 (Android 15) with the front camera and the real models: all three workflows |
 | Eye openness (Iris model) on public test photos | closed 0.03–0.13, open 0.25–0.36 |
 | Smile score on public test photos | neutral 0.20–0.23, smiling 0.94–1.00 |
 | **ISO/IEC 30107-3 evaluation** (APCER per attack type, BPCER) | _[to be filled from the team's recorded sessions]_ |
@@ -67,9 +68,22 @@ All of it runs on the station, so it behaves identically online and offline.
 
 - Publish the ISO/IEC 30107-3 evaluation on recorded sessions from the target devices, and calibrate the
   thresholds from it.
-- Android: run the example app on target phones and tablets. The Android build (same engine and models, CameraX,
-  the Flutter capture screen) is built, lint-checked and tested, but has not run on a device yet.
+- Android: run on more phones and tablets, including low-end ones, and set the analysis rate per device class
+  from the on-device timings the app reports.
 - Merge the controller changes into `mosip/registration-client`, and validate on real L0/L1 hardware.
+
+## Known limitations
+
+- **No real L0/L1 face device was available.** The SBI integration is tested against MOSIP's own mock SBI, which
+  streams a still photo, so the live app correctly rejects it as an attack. A passing session on certified
+  hardware is still to be done.
+- **Android uses the device camera.** Vendor face devices on Android (through their SBI apps) are not supported
+  yet. On desktop, any SBI-compliant device works.
+- **Not merged into MOSIP's client repositories.** The desktop integration is a tested module plus
+  controller-by-controller changes ([REGCLIENT_INTEGRATION.md](REGCLIENT_INTEGRATION.md)); the client itself
+  needs MOSIP's internal artifacts to build. The Android side is a Flutter plugin the client adds as a dependency.
+- **Thresholds are defaults** until the ISO/IEC 30107-3 evaluation above is run on recorded sessions.
+- **Translations are machine-assisted** and need a native-speaker review.
 
 Design details: [DESIGN.md](DESIGN.md) · Screens: [UI_UX.md](UI_UX.md) · Technology choices:
 [TECHNOLOGY_EVALUATION.md](TECHNOLOGY_EVALUATION.md) · Client integration: [REGCLIENT_INTEGRATION.md](REGCLIENT_INTEGRATION.md)

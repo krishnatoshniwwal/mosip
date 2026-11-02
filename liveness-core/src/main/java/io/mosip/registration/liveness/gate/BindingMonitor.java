@@ -8,6 +8,7 @@ import io.mosip.registration.liveness.engine.FaceObservation;
 import io.mosip.registration.liveness.engine.FrameAnalysis;
 import io.mosip.registration.liveness.engine.LivenessEngine;
 import io.mosip.registration.liveness.engine.LivenessEngineException;
+import io.mosip.registration.liveness.session.PadAttackWindow;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -51,7 +52,7 @@ final class BindingMonitor implements FrameListener {
     private volatile int framesAnalyzed;
 
     // Worker-thread state.
-    private int attackFrames;
+    private final PadAttackWindow padWindow;
     private int engineErrors;
 
     /** @param verifiedFace the face in the frame the session accepted; null skips the position check */
@@ -62,6 +63,7 @@ final class BindingMonitor implements FrameListener {
         this.verifiedFace = verifiedFace;
         this.clock = clock;
         this.preview = preview;
+        this.padWindow = new PadAttackWindow(policy.getPadAttackWindow(), policy.getPadMinAttackFrames());
         this.lastFaceAt = clock.getAsLong();
         this.worker = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "liveness-capture-bind");
@@ -116,7 +118,7 @@ final class BindingMonitor implements FrameListener {
         long now = clock.getAsLong();
         framesAnalyzed++;
         boolean attack = policy.isPadEnabled() && analysis.getPad().isAttackDetected();
-        if (attack && ++attackFrames >= policy.getPadMinAttackFrames()) {
+        if (!analysis.getFaces().isEmpty() && padWindow.add(attack)) {
             violate(BindingViolation.ATTACK_DETECTED);
             return;
         }

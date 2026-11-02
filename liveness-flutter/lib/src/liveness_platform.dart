@@ -11,11 +11,16 @@ abstract class LivenessPlatform {
   /// [config] is the client's `mosip.registration.liveness.*` settings (the synced global parameters); the
   /// built-in defaults apply when null. With [trustedKeys] (PEM public keys) the engine runs only on a signed model
   /// package. [simulated] uses a simulated camera and person, for demos and tests without a camera.
+  ///
+  /// With [modelUpdateUrl] (an https server publishing signed packages; needs [trustedKeys]) newer models are
+  /// fetched every [modelSyncIntervalMinutes] while the device is online, and used from the next start.
   Future<Map<String, Object?>> initialize({
     bool simulated = false,
     Map<String, String>? config,
     List<String>? trustedKeys,
     String lensFacing = 'FRONT',
+    String? modelUpdateUrl,
+    int? modelSyncIntervalMinutes,
   });
 
   /// Screen texts in [language] (ISO 639-1/639-3, e.g. `en`, `fra`, `ara`), available before a session starts.
@@ -42,7 +47,14 @@ abstract class LivenessPlatform {
 
   Future<void> dispose();
 
-  /// Updates, results, audit records and camera errors.
+  /// Liveness performance on this device since [initialize]: `avgFrameProcessingMs`,
+  /// `avgChallengeCompletionMs`, `retryRate`, `failureRate` and counts. Null before [initialize].
+  Future<Map<String, Object?>?> metrics();
+
+  /// Checks the model update server now: `status` is UPDATED, UP_TO_DATE, OFFLINE, REJECTED or SKIPPED_OFFLINE.
+  Future<Map<String, Object?>> syncModels();
+
+  /// Updates, results, audit records, model sync results and camera errors.
   Stream<LivenessEvent> get events;
 
   /// The live camera preview, mirrored like a selfie.
@@ -71,12 +83,16 @@ class MethodChannelLivenessPlatform implements LivenessPlatform {
     Map<String, String>? config,
     List<String>? trustedKeys,
     String lensFacing = 'FRONT',
+    String? modelUpdateUrl,
+    int? modelSyncIntervalMinutes,
   }) async {
     final info = await methods.invokeMapMethod<String, Object?>('initialize', {
       'mode': simulated ? 'simulated' : 'camera',
       'config': config,
       'trustedKeys': trustedKeys,
       'lensFacing': lensFacing,
+      'modelUpdateUrl': ?modelUpdateUrl,
+      'modelSyncIntervalMinutes': ?modelSyncIntervalMinutes,
     });
     return info ?? const {};
   }
@@ -118,6 +134,13 @@ class MethodChannelLivenessPlatform implements LivenessPlatform {
 
   @override
   Future<void> dispose() => methods.invokeMethod('dispose');
+
+  @override
+  Future<Map<String, Object?>?> metrics() => methods.invokeMapMethod<String, Object?>('metrics');
+
+  @override
+  Future<Map<String, Object?>> syncModels() async =>
+      await methods.invokeMapMethod<String, Object?>('syncModels') ?? const {};
 
   @override
   Stream<LivenessEvent> get events => _events;

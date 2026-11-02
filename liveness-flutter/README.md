@@ -36,6 +36,12 @@ if (result.accepted) {
 }
 ```
 
+To keep the models current, pass `modelUpdateUrl` (an https server publishing signed packages, the output of
+`models sign`) with `trustedKeys`. While the device is online, newer packages are fetched every
+`modelSyncIntervalMinutes` (6 hours by default). They are verified exactly as on desktop and used from the next
+`initialize`. `syncModels()` checks immediately. `metrics()` returns the on-device performance: average time
+per analysed frame, challenge completion time, and retry and failure rates.
+
 `config` takes the client's `mosip.registration.liveness.*` settings as strings. These are the same keys as
 [config/liveness.properties](../config/liveness.properties), with per-workflow policies. Unknown or invalid
 keys make `initialize` fail, so a mistyped setting can't weaken the policy. Without `trustedKeys` the bundled

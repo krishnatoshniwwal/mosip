@@ -100,6 +100,7 @@ sealed class LivenessEvent {
         'complete' => LivenessResult.fromMap(map),
         'audit' => LivenessAuditEvent.fromMap(map),
         'cameraError' => CameraErrorEvent(map['message'] as String? ?? ''),
+        'modelSync' => ModelSyncEvent(map['status'] as String? ?? '', map['detail'] as String?, map['offered'] as String?),
         _ => null,
       };
 }
@@ -206,6 +207,18 @@ class LivenessAuditEvent extends LivenessEvent {
   final String type;
   final int attempt;
   final Map<String, String> details;
+}
+
+/// A background model update attempt (only while online): UPDATED, UP_TO_DATE, OFFLINE or REJECTED. An update is
+/// used from the next [LivenessPlatform.initialize].
+class ModelSyncEvent extends LivenessEvent {
+  const ModelSyncEvent(this.status, this.detail, this.offered);
+
+  final String status;
+  final String? detail;
+
+  /// The package the server offered, e.g. `liveness-models 1.3.0 (seq 2)`.
+  final String? offered;
 }
 
 /// The camera could not be started (none, in use, ...). The session reports the failure itself as well.

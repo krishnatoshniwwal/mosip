@@ -64,6 +64,17 @@ The preview background is `#1D2329`, and the oval colours are drawn on it. On th
 instruction colours meet WCAG AA for large text (the instruction is bold 20 pt): amber 4.0:1, green 4.2:1 and
 red 5.4:1 against white. Smaller text is dark or muted grey (6.4:1).
 
+### Screenshots
+
+The desktop dialog (`liveness-regclient`), captured with the simulated device, which shows the person as a grey
+silhouette instead of a camera image.
+
+| | |
+|---|---|
+| ![Camera notice](screenshots/desktop-1-camera-notice.png) **1. Camera notice** before the camera opens; "Don't allow" is the default. | ![Checking](screenshots/desktop-2-checking.png) **2. Passive check:** no action needed. |
+| ![Challenge](screenshots/desktop-3-challenge.png) **3. Active challenge** (supervisor policy): prompt, arrow, step, countdown, attempt. | ![Success](screenshots/desktop-4-success.png) **4. Accepted.** The camera is already released. |
+| ![Photo rejected](screenshots/desktop-5-photo-rejected.png) **5. Printed photo:** only the generic message, one tip and Retry. Which check fired goes to the audit trail. | ![Arabic](screenshots/desktop-6-arabic.png) **6. Arabic:** texts and buttons right to left; the preview and arrow are not flipped. |
+
 ## 2. Screen flow
 
 ```mermaid

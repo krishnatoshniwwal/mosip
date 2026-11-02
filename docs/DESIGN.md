@@ -134,7 +134,7 @@ stateDiagram-v2
 | Check | Defends against |
 |---|---|
 | Face must be inside the capture oval (`capture.area.*`) to count or be captured; leaving it during verification fails the attempt | capturing a bystander or a face held up at the edge of the view |
-| PAD verdict (model + replay cues); `pad.minAttackFrames` flagged frames in an attempt reject it | print, screen, replay, mask |
+| PAD verdict (model + replay cues) on the face inside the oval; `pad.minAttackFrames` flagged frames among the last `pad.attackWindow` in-oval frames reject the attempt (5 of 20: a print or screen is flagged on every frame and rejected within 5, while stray frames on a real face never add up). A face outside the oval gets a positioning hint instead: it never counts, and the models give unreliable verdicts on a face at the frame edge | print, screen, replay, mask |
 | Stream integrity: repeated frames or no sensor noise → fail (see *Injection attack detection*) | deepfake, video or still injected through a virtual camera |
 | More than one face after passive → fail | an accomplice performing the action for a photo |
 | Face-centre jump > 25 % of the frame between frames → fail | swapping media mid-session |
@@ -454,8 +454,10 @@ Integration points in the Registration Client:
     upright with `Nv21Rotator`, never mirrored, so "turn left" means the same on both platforms) and the
     channel bridge, which sends every text already translated from the shared bundles.
   - `liveness-android/src/android`: Android APIs. It loads OpenCV's native library, copies the models out of the
-    APK, and installs a bundled signed package through `ModelRepository` (same checks as desktop). It also
-    binds CameraX's preview and analysis to the screen, and encodes the verified frame as JPEG.
+    APK, and installs a bundled signed package through `ModelRepository` (same checks as desktop). While the
+    device has a validated internet connection, `AndroidModelUpdater` fetches newer signed packages with the
+    desktop's `ModelSync`; offline nothing is attempted. It also binds CameraX's preview and analysis to the
+    screen, and encodes the verified frame as JPEG.
   - `liveness-android/liveness-library.gradle`: the sources, dependencies and bundled models, applied by both
     the standalone AAR build and the Flutter plugin, so the two cannot drift.
   - `liveness-flutter`: the plugin (methods, events, preview platform view, Android camera permission, screen
@@ -474,7 +476,7 @@ All keys live under `mosip.registration.liveness.` and can be overridden per wor
 | `passive.threshold` | 70 | Passive score (0–100) needed to skip challenges |
 | `passive.minFrames` / `passive.timeoutMs` | 8 / 10000 | Passive window |
 | `face.minQuality` | 40 | Minimum per-frame face quality |
-| `pad.enabled` / `pad.minAttackFrames` | true / 2 | PAD enforcement |
+| `pad.enabled` / `pad.minAttackFrames` / `pad.attackWindow` | true / 5 / 20 | PAD enforcement: reject once 5 of the last 20 in-oval frames are flagged. Calibrated on the team's recordings, where attacks were flagged on 100% of in-oval frames and real faces on at most 19% |
 | `active.enabled` / `active.always` | true / false | Active escalation policy |
 | `active.challenges` | BLINK,SMILE,TURN_LEFT,TURN_RIGHT | Challenge pool (+ LOOK_UP, LOOK_DOWN) |
 | `active.minChallenges` / `active.maxChallenges` | 2 / 3 | Challenges per attempt |
