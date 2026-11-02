@@ -638,7 +638,8 @@ with the packet's creation time instead. Tool: `LivenessTools evidence verify <e
 
 ## 9. Testing
 
-143 automated tests across `liveness-core` and `liveness-onnx-engine` (`build.ps1` / `build.sh` / `mvn verify`):
+292 automated Java tests across all modules, plus 16 Flutter tests (`build.ps1` / `build.sh` / `mvn verify`;
+`flutter test`). The full list of test cases and results is in [TESTING.md](TESTING.md). The main areas:
 
 - **Session (deterministic, virtual clock):** passive-only pass; low score → random challenges → pass;
   `active.always`; unresponsive subject exhausts retries with the configured action; printed photo

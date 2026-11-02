@@ -62,12 +62,34 @@ All of it runs on the station, so it behaves identically online and offline.
 | Android | example app run on a vivo V2253 (Android 15) with the front camera and the real models: all three workflows |
 | Eye openness (Iris model) on public test photos | closed 0.03–0.13, open 0.25–0.36 |
 | Smile score on public test photos | neutral 0.20–0.23, smiling 0.94–1.00 |
-| **ISO/IEC 30107-3 evaluation** (APCER per attack type, BPCER) | _[to be filled from the team's recorded sessions]_ |
+| **ISO/IEC 30107-3 evaluation** (APCER per attack type, BPCER) | No attack accepted (0 of 12); 17% of real people rejected (5 of 29). Preliminary: see below |
+
+### ISO/IEC 30107-3 evaluation (preliminary)
+
+41 clips of 4 consenting team members (pseudonymous IDs): real faces, and photos of them shown on a phone screen.
+Recorded with the `record` tool on a laptop webcam (640x480, 15 fps) and scored with `evaluate`, which judges each clip as the app does: only frames with one face
+inside the oval count, and an attack is 5 flagged frames among the last 20. Intervals are Wilson 95%.
+
+| Population | Clips | Error rate | No usable frames (non-response) |
+|---|---|---|---|
+| Photo shown on a phone screen | 12 | **APCER 0%** (0/12) [0–24%] | 7 |
+| Real people (bona fide) | 29 | **BPCER 17.2%** (5/29) [7.6–34.6%]: 1 flagged as an attack, 4 non-responses | 4 |
+
+- **Every attack the system judged was caught:** the 5 screen attacks held inside the oval were flagged on every
+  frame, with passive scores of 0–9 against 75–100 for most real people.
+- **Non-responses are never acceptances.** The ones here are recording problems (a second person in view, the face
+  too far from the camera); the app answers them with positioning guidance, not a verdict.
+- **The attack rule was calibrated on this set:** real people had at most 19% of their frames flagged, attacks
+  100%, so "5 of the last 20" sits between the two. It cut false rejections by the PAD from 4 to 1 with no
+  attack accepted.
+- **Limits:** a small set, one camera, one attack type (a photo on a screen), and only 5 attacks actually judged.
+  Printed photos and video replays were not evaluated; PAD covers them (see DESIGN.md) but without measured
+  rates here.
 
 ## What's next
 
-- Publish the ISO/IEC 30107-3 evaluation on recorded sessions from the target devices, and calibrate the
-  thresholds from it.
+- Complete the ISO/IEC 30107-3 evaluation on a separate test set from the target devices (laptop and phone),
+  adding printed photos and video replays, and confirm the passive threshold against them.
 - Android: run on more phones and tablets, including low-end ones, and set the analysis rate per device class
   from the on-device timings the app reports.
 - Merge the controller changes into `mosip/registration-client`, and validate on real L0/L1 hardware.
@@ -82,7 +104,8 @@ All of it runs on the station, so it behaves identically online and offline.
 - **Not merged into MOSIP's client repositories.** The desktop integration is a tested module plus
   controller-by-controller changes ([REGCLIENT_INTEGRATION.md](REGCLIENT_INTEGRATION.md)); the client itself
   needs MOSIP's internal artifacts to build. The Android side is a Flutter plugin the client adds as a dependency.
-- **Thresholds are defaults** until the ISO/IEC 30107-3 evaluation above is run on recorded sessions.
+- **Thresholds are calibrated on a small set.** The attack rule was set from 43 clips on one laptop webcam; the
+  passive threshold is still the default (70) and the phone has not been calibrated separately.
 - **Translations are machine-assisted** and need a native-speaker review.
 
 Design details: [DESIGN.md](DESIGN.md) · Screens: [UI_UX.md](UI_UX.md) · Technology choices:

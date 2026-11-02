@@ -68,7 +68,7 @@ Needs JDK 11+. No Maven required: the scripts download JUnit, OpenCV, ONNX Runti
 `-Dmosip.liveness.models=<dir>` at a folder containing `face_detection_yunet_2023mar.onnx`.
 
 ```powershell
-.\build.ps1          # compile + 280 tests
+.\build.ps1          # compile + 292 tests
 .\build.ps1 -Run     # launch LIVE webcam capture & real liveness
 .\build.ps1 -Run -Sim # launch simulated desktop demo (mock device)
 .\build.ps1 -Run -Device sbi:auto   # live capture from an SBI face device (MDS on 127.0.0.1:4501-4600)
@@ -210,6 +210,9 @@ LivenessHandle h = service.start(LivenessWorkflow.OPERATOR_AUTHENTICATION, opera
 });
 // h.retry() when the user presses Retry; h.cancel() to abort
 ```
+
+API reference: [docs/API.md](docs/API.md). Test cases and results: [docs/TESTING.md](docs/TESTING.md). Demo
+IDs and test data: [docs/TEST_DATA.md](docs/TEST_DATA.md).
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the full design, [docs/UI_UX.md](docs/UI_UX.md) for the screens and
 [docs/TECHNOLOGY_EVALUATION.md](docs/TECHNOLOGY_EVALUATION.md) for the technology choices.
